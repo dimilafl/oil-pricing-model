@@ -29,6 +29,8 @@ make dashboard
 ## Data sources
 - FRED CSV endpoint for DCOILWTICO, DCOILBRENTEU, VIXCLS, OVXCLS, DTWEXBGS, DGS10
 - GDELT GKG 2.1 zipped feed from the public last update list
+- Optional Polygon options snapshot endpoint (requires `POLYGON_API_KEY`)
+- Optional OpenAI Responses API for news classification (requires `OPENAI_API_KEY`)
 
 ## Storage
 - SQLite database at `data/oil_risk.db`
@@ -48,3 +50,7 @@ make dashboard
 .venv/bin/oil-generate-signals
 .venv/bin/oil-generate-report
 ```
+
+## Optional modules
+- **Options hedging proxy**: stores `options_raw` + `options_features`, computes unusual put activity and supports a `hedging_pressure_alert`.
+- **LLM news screening**: stores cached one-time classifications in `news_llm` and adds LLM intensity/category features into `news_features`.

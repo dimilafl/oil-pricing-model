@@ -19,11 +19,22 @@ def main() -> None:
         st.plotly_chart(fig, use_container_width=True)
 
     nf = read_sql(
-        "SELECT date, feature_value FROM news_features WHERE feature_name='geopolitical_risk_score'"
+        "SELECT date, feature_name, feature_value FROM news_features "
+        "WHERE feature_name IN ('geopolitical_risk_score', 'intensity_sum')"
     )
     if not nf.empty:
         nf["date"] = pd.to_datetime(nf["date"])
-        fig = px.line(nf, x="date", y="feature_value", title="news_risk_score")
+        for feature in nf["feature_name"].unique():
+            chunk = nf[nf["feature_name"] == feature]
+            fig = px.line(chunk, x="date", y="feature_value", title=feature)
+            st.plotly_chart(fig, use_container_width=True)
+
+    of = read_sql(
+        "SELECT date, feature_value FROM options_features WHERE feature_name='put_call_ratio_mean'"
+    )
+    if not of.empty:
+        of["date"] = pd.to_datetime(of["date"])
+        fig = px.line(of, x="date", y="feature_value", title="options_put_call_ratio_mean")
         st.plotly_chart(fig, use_container_width=True)
 
     ms = read_sql("SELECT date, state_id, state_label FROM model_state")

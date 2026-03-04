@@ -37,6 +37,25 @@ market_features = Table(
     Column("feature_value", Float, nullable=True),
 )
 
+options_raw = Table(
+    "options_raw",
+    metadata,
+    Column("ticker", String, nullable=False),
+    Column("date", Date, nullable=False),
+    Column("metric_name", String, nullable=False),
+    Column("metric_value", Float, nullable=True),
+    Column("source", String, nullable=False),
+    Column("pulled_at", DateTime, nullable=False, default=datetime.utcnow),
+)
+
+options_features = Table(
+    "options_features",
+    metadata,
+    Column("date", Date, nullable=False),
+    Column("feature_name", String, nullable=False),
+    Column("feature_value", Float, nullable=True),
+)
+
 news_raw = Table(
     "news_raw",
     metadata,
@@ -47,6 +66,19 @@ news_raw = Table(
     Column("title", String, nullable=True),
     Column("raw_record_json", JSON, nullable=False),
     Column("pulled_at", DateTime, nullable=False, default=datetime.utcnow),
+)
+
+news_llm = Table(
+    "news_llm",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("relevance_score", Float, nullable=False),
+    Column("category", String, nullable=False),
+    Column("intensity", Integer, nullable=False),
+    Column("entities_json", JSON, nullable=False),
+    Column("summary", String, nullable=False),
+    Column("model_name", String, nullable=False),
+    Column("created_at", DateTime, nullable=False, default=datetime.utcnow),
 )
 
 news_features = Table(
