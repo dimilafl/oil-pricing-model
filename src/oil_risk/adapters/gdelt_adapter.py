@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import time
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -67,17 +68,38 @@ class GdeltAdapter:
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.last_cache_hit = False
 
-    def _cache_key(self, query: GdeltQuery) -> str:
-        return f"gdelt_api_{query.days}d_{query.max_records}r"
+    def _cache_key(self, query: GdeltQuery, end_dt: datetime) -> str:
+        return f"gdelt_api_{query.days}d_{query.max_records}r_{end_dt.strftime('%Y%m%d')}"
+
+    def _get_json_with_retry(self, url: str, timeout: int = 60, max_attempts: int = 3) -> dict:
+        delay_seconds = 1.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = requests.get(url, timeout=timeout)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException:
+                if attempt == max_attempts:
+                    raise
+                time.sleep(delay_seconds)
+                delay_seconds *= 2
+        return {}
 
     def _fetch_api_records(self, query: GdeltQuery) -> list[dict]:
         end_dt = datetime.now(UTC)
         start_dt = end_dt - timedelta(days=query.days)
-        raw_cache = (self.cache_dir / self._cache_key(query)).with_suffix(".json")
-        if raw_cache.exists():
-            return json.loads(raw_cache.read_text(encoding="utf-8"))
+        cache_ttl_seconds = int(os.getenv("GDELT_CACHE_TTL_SECONDS", "1800"))
+        raw_cache = (self.cache_dir / self._cache_key(query, end_dt)).with_suffix(".json")
 
+        if raw_cache.exists():
+            cache_age_seconds = time.time() - raw_cache.stat().st_mtime
+            if cache_age_seconds <= cache_ttl_seconds:
+                self.last_cache_hit = True
+                return json.loads(raw_cache.read_text(encoding="utf-8"))
+
+        self.last_cache_hit = False
         records: list[dict] = []
         seen_ids: set[str] = set()
         cursor = start_dt
@@ -93,9 +115,7 @@ class GdeltAdapter:
                 "maxrecords": str(page_size),
             }
             url = DOC_API_URL + "?" + "&".join(f"{k}={v}" for k, v in params.items())
-            resp = requests.get(url, timeout=60)
-            resp.raise_for_status()
-            payload = resp.json()
+            payload = self._get_json_with_retry(url, timeout=60)
             articles = payload.get("articles", [])
             if not articles:
                 break
