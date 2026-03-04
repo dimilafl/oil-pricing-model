@@ -32,6 +32,5 @@ class FredAdapter:
         df["series_id"] = series_id
         df["source"] = "fred"
         df["pulled_at"] = datetime.now(UTC)
-        df = df.dropna(subset=["value"])
         df.to_parquet(cache_file, index=False)
         return df

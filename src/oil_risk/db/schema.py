@@ -68,6 +68,19 @@ news_raw = Table(
     Column("pulled_at", DateTime, nullable=False, default=datetime.utcnow),
 )
 
+
+news_normalized = Table(
+    "news_normalized",
+    metadata,
+    Column("date", Date, nullable=False),
+    Column("article_count", Integer, nullable=False),
+    Column("keyword_count", Integer, nullable=False),
+    Column("tone", Float, nullable=True),
+    Column("source", String, nullable=True),
+    Column("title", String, nullable=True),
+    Column("url", String, nullable=True),
+)
+
 news_llm = Table(
     "news_llm",
     metadata,

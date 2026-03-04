@@ -12,7 +12,7 @@ class DummyResp:
 
 
 def test_series_to_dataframe(monkeypatch, tmp_path: Path):
-    csv_text = "DATE,DCOILWTICO\n2024-01-01,70\n2024-01-02,71\n"
+    csv_text = "DATE,DCOILWTICO\n2024-01-01,70\n2024-01-02,.\n2024-01-03,71\n"
 
     def fake_get(*args, **kwargs):
         return DummyResp(csv_text)
@@ -21,4 +21,5 @@ def test_series_to_dataframe(monkeypatch, tmp_path: Path):
     adapter = FredAdapter(tmp_path)
     df = adapter.series_to_dataframe("DCOILWTICO", force_refresh=True)
     assert {"date", "value", "series_id", "source", "pulled_at"} <= set(df.columns)
-    assert len(df) == 2
+    assert len(df) == 3
+    assert df["value"].isna().sum() == 1

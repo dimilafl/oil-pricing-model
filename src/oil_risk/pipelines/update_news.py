@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
+from time import perf_counter
 
 import pandas as pd
 
@@ -44,12 +46,23 @@ def _classify_news_once(raw_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _write_runlog(payload: dict) -> None:
+    runlog_dir = settings.data_dir / "runlogs"
+    runlog_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    runlog_path = runlog_dir / f"update_news_{stamp}.json"
+    runlog_path.write_text(json.dumps(payload, default=str, indent=2), encoding="utf-8")
+
+
 def run() -> None:
+    started = perf_counter()
     setup_logging()
     init_db()
     adapter = GdeltAdapter(settings.cache_dir)
     raw_df, norm_df = adapter.fetch_and_parse()
+
     if not raw_df.empty:
+        raw_df = raw_df.drop_duplicates(subset=["id"], keep="last")
         min_dt = pd.to_datetime(raw_df["datetime"]).min()
         with get_engine().begin() as conn:
             conn.exec_driver_sql(
@@ -57,11 +70,25 @@ def run() -> None:
                 (min_dt.to_pydatetime().replace(tzinfo=None).isoformat(sep=" "),),
             )
         write_dataframe(raw_df, "news_raw", replace=False)
+
     if not norm_df.empty:
         norm_df.to_parquet(settings.cache_dir / "news_normalized.parquet", index=False)
+        write_dataframe(norm_df, "news_normalized", replace=True)
+
     llm_df = _classify_news_once(raw_df)
     if not llm_df.empty:
         write_dataframe(llm_df, "news_llm", replace=False)
+
+    runlog = {
+        "raw_rows": len(raw_df),
+        "normalized_rows": len(norm_df),
+        "llm_rows": len(llm_df),
+        "min_dt": pd.to_datetime(raw_df["datetime"]).min() if not raw_df.empty else None,
+        "max_dt": pd.to_datetime(raw_df["datetime"]).max() if not raw_df.empty else None,
+        "duration_seconds": round(perf_counter() - started, 3),
+        "cache_hit": adapter.last_cache_hit,
+    }
+    _write_runlog(runlog)
     logging.info(
         "Wrote %s raw news rows, %s normalized rows, %s llm rows",
         len(raw_df),

@@ -20,6 +20,14 @@ class OpenAINewsClassifier:
         self.api_key = api_key
         self.model_name = model_name
 
+    def _extract_json(self, text: str) -> dict:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+        return json.loads(cleaned)
+
     def classify(self, title: str | None, raw_record_json: str | None) -> dict:
         prompt = {
             "title": title,
@@ -44,7 +52,7 @@ class OpenAINewsClassifier:
         resp.raise_for_status()
         data = resp.json()
         text = data.get("output", [{}])[0].get("content", [{}])[0].get("text", "{}")
-        parsed = json.loads(text)
+        parsed = self._extract_json(text)
         parsed["model_name"] = self.model_name
         parsed["created_at"] = datetime.now(UTC)
         return parsed

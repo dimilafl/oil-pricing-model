@@ -22,3 +22,19 @@ These instructions apply to the full repository.
 - `make report`
 - `make dashboard`
 - `make test`
+
+## Steinberger validation loop
+- Contract prompt template:
+  - Goal
+  - Constraints
+  - Acceptance tests
+  - Proof required
+- Proof requirements:
+  - list exact commands run
+  - include output summary for each command
+  - list changed files and reason for each change
+- Minimal gate before merge: `make smoke`
+- Parallel roles:
+  - Builder: implement smallest safe diff
+  - Verifier: add or tighten tests and run gates
+  - Janitor: docs, lint, cleanup, and commit hygiene
