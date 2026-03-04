@@ -49,7 +49,7 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
     return df[cols]
 
 
-def build_news_features(news_norm: pd.DataFrame) -> pd.DataFrame:
+def build_news_features(news_norm: pd.DataFrame, news_llm: pd.DataFrame | None = None) -> pd.DataFrame:
     if news_norm.empty:
         return pd.DataFrame(columns=["date"])
     grouped = news_norm.groupby("date").agg(
@@ -66,4 +66,39 @@ def build_news_features(news_norm: pd.DataFrame) -> pd.DataFrame:
         + grouped["z_keyword_count"]
         + grouped["z_negative_tone_magnitude"]
     )
+
+    if news_llm is not None and not news_llm.empty:
+        llm = news_llm.copy()
+        llm["date"] = pd.to_datetime(llm["date"]).dt.date
+        llm_daily = llm.groupby("date").agg(intensity_sum=("intensity", "sum"))
+        cat_counts = llm.pivot_table(
+            index="date", columns="category", values="id", aggfunc="count", fill_value=0
+        )
+        cat_counts.columns = [f"category_count_{c}" for c in cat_counts.columns]
+        llm_daily = llm_daily.join(cat_counts, how="left").fillna(0)
+        grouped = grouped.join(llm_daily, how="left").fillna(0)
+        grouped["geopolitical_risk_score"] = grouped["geopolitical_risk_score"] + 0.5 * robust_z(
+            grouped["intensity_sum"]
+        )
+
     return grouped
+
+
+def build_options_features(options_raw: pd.DataFrame, z_threshold: float = 1.5) -> pd.DataFrame:
+    if options_raw.empty:
+        return pd.DataFrame(columns=["date"])
+    piv = options_raw.pivot_table(
+        index=["date", "ticker"], columns="metric_name", values="metric_value", aggfunc="last"
+    ).reset_index()
+    piv["put_call_ratio"] = piv.get("put_call_ratio")
+    piv["put_call_ratio_z"] = piv.groupby("ticker")["put_call_ratio"].transform(robust_z)
+    piv["unusual_put_activity"] = (piv["put_call_ratio_z"] > z_threshold).astype(float)
+    by_day = piv.groupby("date").agg(
+        put_volume_total=("put_volume", "sum"),
+        call_volume_total=("call_volume", "sum"),
+        put_call_ratio_mean=("put_call_ratio", "mean"),
+        unusual_put_activity=("unusual_put_activity", "max"),
+    )
+    if "implied_vol_proxy" in piv.columns:
+        by_day["implied_vol_proxy_mean"] = piv.groupby("date")["implied_vol_proxy"].mean()
+    return by_day

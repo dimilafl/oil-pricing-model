@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,8 @@ class Settings:
     reports_dir: Path = Path("reports")
     models_dir: Path = Path("models")
     db_path: Path = Path("data/oil_risk.db")
+    polygon_api_key: str | None = os.getenv("POLYGON_API_KEY")
+    openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
 
 
 settings = Settings()
