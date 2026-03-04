@@ -7,12 +7,12 @@ import pandas as pd
 
 from oil_risk.adapters.fred_adapter import FredAdapter
 from oil_risk.config import settings
-from oil_risk.db.io import write_dataframe
+from oil_risk.db.io import delete_by_date, write_dataframe
 from oil_risk.db.schema import init_db
 from oil_risk.logging_utils import setup_logging
 from oil_risk.options_flow import PolygonOptionsFlowProvider
 
-SERIES = ["DCOILWTICO", "DCOILBRENTEU", "VIXCLS", "OVXCLS", "DTWEXBGS", "DGS10"]
+SERIES = ["DCOILWTICO", "DCOILBRENTEU", "VIXCLS", "OVXCLS", "DTWEXBGS", "DGS10", "SP500"]
 OPTION_TICKERS = ["USO", "XLE", "SPY"]
 
 
@@ -46,7 +46,8 @@ def run() -> None:
 
     options_df = _pull_options()
     if not options_df.empty:
-        write_dataframe(options_df, "options_raw", replace=True)
+        delete_by_date("options_raw", datetime.now(UTC).date())
+        write_dataframe(options_df, "options_raw", replace=False)
         logging.info("Wrote %s options rows", len(options_df))
 
 

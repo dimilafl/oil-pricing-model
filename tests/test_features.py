@@ -13,12 +13,15 @@ def test_build_market_features():
             "OVXCLS": range(20, 90),
             "DTWEXBGS": range(100, 170),
             "DGS10": [4 + i * 0.01 for i in range(70)],
+            "SP500": range(4000, 4070),
         },
         index=idx,
     )
     out = build_market_features(df)
     assert "oil_return" in out.columns
     assert "OVX_z_63" in out.columns
+    assert "spx_return" in out.columns
+    assert "oil_spx_corr_63" in out.columns
 
 
 def test_build_news_features_with_llm():
