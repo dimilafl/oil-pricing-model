@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+
+def robust_z(series: pd.Series) -> pd.Series:
+    med = series.median()
+    mad = (series - med).abs().median()
+    if mad == 0 or pd.isna(mad):
+        return pd.Series(np.zeros(len(series)), index=series.index)
+    return 0.6745 * (series - med) / mad
+
+
+def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
+    df = market_wide.sort_index().copy()
+    df["oil_return"] = np.log(df["DCOILWTICO"]).diff()
+    df["brent_return"] = np.log(df["DCOILBRENTEU"]).diff()
+    df["dVIX"] = df["VIXCLS"].diff()
+    df["dOVX"] = df["OVXCLS"].diff()
+    vix_mean = df["VIXCLS"].rolling(63).mean()
+    vix_std = df["VIXCLS"].rolling(63).std()
+    ovx_mean = df["OVXCLS"].rolling(63).mean()
+    ovx_std = df["OVXCLS"].rolling(63).std()
+    df["VIX_z_63"] = (df["VIXCLS"] - vix_mean) / vix_std
+    df["OVX_z_63"] = (df["OVXCLS"] - ovx_mean) / ovx_std
+    df["oil_vix_corr_63_proxy"] = df["oil_return"].rolling(63).corr(df["dVIX"])
+    df["oil_realized_vol_10d"] = df["oil_return"].rolling(10).std()
+    df["oil_realized_vol_21d"] = df["oil_return"].rolling(21).std()
+    df["usd_level"] = df["DTWEXBGS"]
+    df["usd_change"] = df["DTWEXBGS"].diff()
+    df["rate_level"] = df["DGS10"]
+    df["rate_change"] = df["DGS10"].diff()
+    cols = [
+        "oil_return",
+        "brent_return",
+        "dVIX",
+        "dOVX",
+        "VIX_z_63",
+        "OVX_z_63",
+        "oil_vix_corr_63_proxy",
+        "oil_realized_vol_10d",
+        "oil_realized_vol_21d",
+        "usd_level",
+        "usd_change",
+        "rate_level",
+        "rate_change",
+    ]
+    return df[cols]
+
+
+def build_news_features(news_norm: pd.DataFrame) -> pd.DataFrame:
+    if news_norm.empty:
+        return pd.DataFrame(columns=["date"])
+    grouped = news_norm.groupby("date").agg(
+        article_count=("article_count", "sum"),
+        keyword_count=("keyword_count", "sum"),
+        tone_mean=("tone", "mean"),
+    )
+    grouped["negative_tone_magnitude"] = grouped["tone_mean"].fillna(0).clip(upper=0).abs()
+    grouped["z_article_count"] = robust_z(grouped["article_count"])
+    grouped["z_keyword_count"] = robust_z(grouped["keyword_count"])
+    grouped["z_negative_tone_magnitude"] = robust_z(grouped["negative_tone_magnitude"])
+    grouped["geopolitical_risk_score"] = (
+        grouped["z_article_count"]
+        + grouped["z_keyword_count"]
+        + grouped["z_negative_tone_magnitude"]
+    )
+    return grouped
