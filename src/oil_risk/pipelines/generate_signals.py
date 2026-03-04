@@ -29,6 +29,7 @@ def run() -> None:
     latest = df.dropna().iloc[-1]
     dt = df.dropna().index[-1].date()
 
+    corr_name = "oil_spx_corr_63" if "oil_spx_corr_63" in latest.index else "oil_vix_corr_63_proxy"
     sig_rows = [
         {
             "date": dt,
@@ -51,8 +52,8 @@ def run() -> None:
         {
             "date": dt,
             "signal_name": "correlation_break_alert",
-            "signal_value": float(latest["oil_vix_corr_63_proxy"] < -0.3),
-            "metadata_json": {"oil_vix_corr_63_proxy": latest["oil_vix_corr_63_proxy"]},
+            "signal_value": float(latest[corr_name] < -0.3),
+            "metadata_json": {corr_name: latest[corr_name]},
         },
     ]
     if "unusual_put_activity" in latest.index:

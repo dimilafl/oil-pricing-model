@@ -14,8 +14,17 @@ def main() -> None:
     raw = read_sql("SELECT date, series_id, value FROM market_raw")
     raw["date"] = pd.to_datetime(raw["date"])
     piv = raw.pivot_table(index="date", columns="series_id", values="value").reset_index()
-    for sid in ["DCOILWTICO", "VIXCLS", "OVXCLS"]:
-        fig = px.line(piv, x="date", y=sid, title=sid)
+    for sid in ["DCOILWTICO", "VIXCLS", "OVXCLS", "SP500"]:
+        if sid in piv.columns:
+            fig = px.line(piv, x="date", y=sid, title=sid)
+            st.plotly_chart(fig, use_container_width=True)
+
+    corr = read_sql(
+        "SELECT date, feature_value FROM market_features WHERE feature_name='oil_spx_corr_63'"
+    )
+    if not corr.empty:
+        corr["date"] = pd.to_datetime(corr["date"])
+        fig = px.line(corr, x="date", y="feature_value", title="oil_spx_corr_63")
         st.plotly_chart(fig, use_container_width=True)
 
     nf = read_sql(

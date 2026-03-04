@@ -25,6 +25,9 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
     df["VIX_z_63"] = (df["VIXCLS"] - vix_mean) / vix_std
     df["OVX_z_63"] = (df["OVXCLS"] - ovx_mean) / ovx_std
     df["oil_vix_corr_63_proxy"] = df["oil_return"].rolling(63).corr(df["dVIX"])
+    if "SP500" in df.columns:
+        df["spx_return"] = np.log(df["SP500"]).diff()
+        df["oil_spx_corr_63"] = df["oil_return"].rolling(63).corr(df["spx_return"])
     df["oil_realized_vol_10d"] = df["oil_return"].rolling(10).std()
     df["oil_realized_vol_21d"] = df["oil_return"].rolling(21).std()
     df["usd_level"] = df["DTWEXBGS"]
@@ -39,6 +42,8 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         "VIX_z_63",
         "OVX_z_63",
         "oil_vix_corr_63_proxy",
+        "spx_return",
+        "oil_spx_corr_63",
         "oil_realized_vol_10d",
         "oil_realized_vol_21d",
         "usd_level",
@@ -46,7 +51,7 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         "rate_level",
         "rate_change",
     ]
-    return df[cols]
+    return df[[c for c in cols if c in df.columns]]
 
 
 def build_news_features(news_norm: pd.DataFrame, news_llm: pd.DataFrame | None = None) -> pd.DataFrame:

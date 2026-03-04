@@ -1,52 +1,127 @@
-import io
-import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from oil_risk.adapters.gdelt_adapter import GdeltAdapter, GdeltQuery
 
 
 class DummyResp:
-    def __init__(self, text: str = "", content: bytes = b""):
-        self.text = text
-        self.content = content
+    def __init__(self, payload: dict):
+        self._payload = payload
 
     def raise_for_status(self):
         return None
 
+    def json(self):
+        return self._payload
 
-def test_fetch_and_parse(monkeypatch, tmp_path: Path):
-    row = "\t".join(
-        [
-            "1",
-            "20240101000000",
-            "",
-            "",
-            "example.com",
-            "https://x",
-            "Iran tanker news",
-            "IRAN;TAX_FNCACT_SANCTION;",
-            "",
-            "IRAN#",
-            "",
-            "PERSON1",
-            "",
-            "ORG1",
-            "",
-            "-5,0,0,0,0,0,0",
-        ]
-    )
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("sample.gkg.csv", row + "\n")
 
-    def fake_get(url, timeout=30):
-        if url.endswith("lastupdate.txt"):
-            return DummyResp(text="1 1 http://data.gdeltproject.org/gdeltv2/sample.gkg.csv.zip")
-        return DummyResp(content=buf.getvalue())
+def test_gdelt_api_pagination_and_dedup(monkeypatch, tmp_path: Path):
+    pages = [
+        {
+            "articles": [
+                {
+                    "url": "https://a",
+                    "title": "Iran tanker update",
+                    "seendate": "20240101000000",
+                    "sourcecountry": "US",
+                    "tone": "-3",
+                },
+                {
+                    "url": "https://b",
+                    "title": "Hormuz shipping risk",
+                    "seendate": "20240101010000",
+                    "sourcecountry": "US",
+                    "tone": "-2",
+                },
+            ]
+        },
+        {
+            "articles": [
+                {
+                    "url": "https://b",
+                    "title": "Hormuz shipping risk",
+                    "seendate": "20240101010000",
+                    "sourcecountry": "US",
+                    "tone": "-2",
+                },
+                {
+                    "url": "https://c",
+                    "title": "Sanctions and oil export",
+                    "seendate": "20240101020000",
+                    "sourcecountry": "US",
+                    "tone": "-1",
+                },
+            ]
+        },
+        {"articles": []},
+    ]
+
+    def fake_get(url: str, timeout: int = 60):
+        return DummyResp(pages.pop(0))
 
     monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr(
+        "oil_risk.adapters.gdelt_adapter.datetime",
+        type(
+            "FixedDateTime",
+            (datetime,),
+            {
+                "now": classmethod(lambda cls, tz=None: datetime(2024, 1, 2, tzinfo=UTC)),
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
     adapter = GdeltAdapter(tmp_path)
-    raw, norm = adapter.fetch_and_parse(GdeltQuery(days=9999, max_files=1))
-    assert not raw.empty
-    assert not norm.empty
-    assert "keyword_count" in norm.columns
+    raw, norm = adapter.fetch_and_parse(GdeltQuery(days=10, max_records=10, page_size=2))
+    assert len(raw) == 3
+    assert set(raw["url"]) == {"https://a", "https://b", "https://c"}
+    assert len(norm) == 3
+
+
+def test_gdelt_api_lookback_to_daily_buckets(monkeypatch, tmp_path: Path):
+    payload = {
+        "articles": [
+            {
+                "url": "https://in-window-1",
+                "title": "Iran tanker",
+                "seendate": "20240102000000",
+                "sourcecountry": "US",
+                "tone": "-1",
+            },
+            {
+                "url": "https://in-window-2",
+                "title": "Hormuz blockade",
+                "seendate": "20240102120000",
+                "sourcecountry": "US",
+                "tone": "-2",
+            },
+            {
+                "url": "https://old",
+                "title": "Iran old story",
+                "seendate": "20231201000000",
+                "sourcecountry": "US",
+                "tone": "-3",
+            },
+        ]
+    }
+
+    def fake_get(url: str, timeout: int = 60):
+        return DummyResp(payload)
+
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr(
+        "oil_risk.adapters.gdelt_adapter.datetime",
+        type(
+            "FixedDateTime",
+            (datetime,),
+            {
+                "now": classmethod(lambda cls, tz=None: datetime(2024, 1, 3, tzinfo=UTC)),
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
+    adapter = GdeltAdapter(tmp_path)
+    _, norm = adapter.fetch_and_parse(GdeltQuery(days=2, max_records=10, page_size=10))
+    assert norm["date"].nunique() == 1
+    assert str(norm.iloc[0]["date"]) == "2024-01-02"
+    assert norm["article_count"].sum() == 2
