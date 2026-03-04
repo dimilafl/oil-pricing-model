@@ -23,6 +23,12 @@ signals:
 report:
 	$(BIN)/oil-generate-report
 
+eval:
+	$(BIN)/oil-evaluate-signals
+
+export-alerts:
+	$(BIN)/oil-export-alerts
+
 dashboard:
 	$(BIN)/streamlit run src/oil_risk/dashboard.py
 
@@ -30,3 +36,18 @@ test:
 	$(BIN)/pytest
 	$(BIN)/ruff check .
 	$(BIN)/ruff format --check .
+
+daily:
+	$(MAKE) update
+	$(MAKE) features
+	$(MAKE) train
+	$(MAKE) signals
+	$(MAKE) eval
+	$(MAKE) report
+	$(MAKE) export-alerts
+
+smoke:
+	$(BIN)/ruff check .
+	$(BIN)/ruff format --check .
+	$(BIN)/pytest
+	$(BIN)/pytest tests/test_no_network_smoke.py

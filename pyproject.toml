@@ -40,6 +40,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -58,4 +59,6 @@ oil-build-features = "oil_risk.pipelines.build_features:main"
 oil-train-model = "oil_risk.pipelines.train_model:main"
 oil-generate-signals = "oil_risk.pipelines.generate_signals:main"
 oil-generate-report = "oil_risk.pipelines.generate_report:main"
+oil-evaluate-signals = "oil_risk.pipelines.evaluate_signals:main"
+oil-export-alerts = "oil_risk.pipelines.export_alerts:main"
 oil-dashboard = "oil_risk.dashboard:main"

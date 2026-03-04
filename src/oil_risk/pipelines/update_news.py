@@ -8,8 +8,7 @@ import pandas as pd
 from oil_risk.adapters.gdelt_adapter import GdeltAdapter
 from oil_risk.config import settings
 from oil_risk.db.io import read_sql, write_dataframe
-from oil_risk.db.schema import get_engine
-from oil_risk.db.schema import init_db
+from oil_risk.db.schema import get_engine, init_db
 from oil_risk.llm.news_classifier import OpenAINewsClassifier
 from oil_risk.logging_utils import setup_logging
 
@@ -41,7 +40,7 @@ def _classify_news_once(raw_df: pd.DataFrame) -> pd.DataFrame:
                 }
             )
         except Exception as exc:  # noqa: BLE001
-            logging.warning("LLM classification failed for %s: %s", row['id'], exc)
+            logging.warning("LLM classification failed for %s: %s", row["id"], exc)
     return pd.DataFrame(rows)
 
 

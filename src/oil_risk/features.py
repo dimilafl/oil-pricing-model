@@ -54,7 +54,9 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
     return df[[c for c in cols if c in df.columns]]
 
 
-def build_news_features(news_norm: pd.DataFrame, news_llm: pd.DataFrame | None = None) -> pd.DataFrame:
+def build_news_features(
+    news_norm: pd.DataFrame, news_llm: pd.DataFrame | None = None
+) -> pd.DataFrame:
     if news_norm.empty:
         return pd.DataFrame(columns=["date"])
     grouped = news_norm.groupby("date").agg(

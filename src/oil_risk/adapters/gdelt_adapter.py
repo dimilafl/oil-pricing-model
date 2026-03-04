@@ -117,9 +117,9 @@ class GdeltAdapter:
 
             if not last_seen:
                 break
-            next_cursor = datetime.strptime(last_seen, "%Y%m%d%H%M%S").replace(tzinfo=UTC) + timedelta(
-                seconds=1
-            )
+            next_cursor = datetime.strptime(last_seen, "%Y%m%d%H%M%S").replace(
+                tzinfo=UTC
+            ) + timedelta(seconds=1)
             if next_cursor <= cursor:
                 break
             cursor = next_cursor
@@ -224,7 +224,9 @@ class GdeltAdapter:
                         doc_id = row[0]
                         title = row[6] if len(row) > 6 else None
                         url = row[5] if len(row) > 5 else None
-                        text_blob = " ".join([title or "", " ".join(themes), " ".join(locations)]).lower()
+                        text_blob = " ".join(
+                            [title or "", " ".join(themes), " ".join(locations)]
+                        ).lower()
                         keyword_hits = sum(1 for kw in KEYWORDS if kw in text_blob)
                         if keyword_hits == 0 and "IRAN" not in (row[7] or "").upper():
                             continue
@@ -255,6 +257,8 @@ class GdeltAdapter:
                             }
                         )
 
-        raw_df = pd.DataFrame(raw_rows).drop_duplicates(subset=["id"]) if raw_rows else pd.DataFrame()
+        raw_df = (
+            pd.DataFrame(raw_rows).drop_duplicates(subset=["id"]) if raw_rows else pd.DataFrame()
+        )
         norm_df = pd.DataFrame(norm_rows)
         return raw_df, norm_df
