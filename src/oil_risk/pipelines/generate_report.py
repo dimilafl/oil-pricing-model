@@ -19,6 +19,9 @@ def run() -> Path:
     st = read_sql("SELECT * FROM model_state ORDER BY date DESC LIMIT 1")
     sg = read_sql("SELECT * FROM signals")
     ev = read_sql("SELECT * FROM signal_eval ORDER BY created_at DESC")
+    tail = read_sql(
+        "SELECT date, tail_risk_prob, model_name FROM tail_risk_predictions ORDER BY date DESC"
+    )
 
     mkt["date"] = pd.to_datetime(mkt["date"])
     nws["date"] = pd.to_datetime(nws["date"])
@@ -65,6 +68,22 @@ def run() -> Path:
         lines.append(
             f"- {row['signal_name']}: {bool(row['signal_value'])}, details: {row['metadata_json']}"
         )
+
+    if not tail.empty:
+        latest_tail = tail[tail["date"].astype(str) == latest_date.isoformat()]
+        if not latest_tail.empty:
+            row = latest_tail.iloc[0]
+            lines.extend(["", "## Tail risk probability"])
+            lines.append(
+                f"- tail_risk_prob: {float(row['tail_risk_prob']):.4f} (model: {row['model_name']})"
+            )
+
+    evidence_path = Path("artifacts") / f"evidence_{latest_date.isoformat()}.md"
+    lines.extend(["", "## Evidence pack"])
+    if evidence_path.exists():
+        lines.append(f"- {evidence_path}")
+    else:
+        lines.append("- Not available")
 
     if not ev.empty:
         latest_eval = ev.iloc[0]

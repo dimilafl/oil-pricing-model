@@ -10,6 +10,12 @@ from oil_risk.config import settings
 from oil_risk.db.io import read_sql, write_dataframe
 from oil_risk.logging_utils import setup_logging
 from oil_risk.modeling.regime import save_model, train_regime_model
+from oil_risk.modeling.tail_risk import (
+    build_tail_risk_dataset,
+    save_tail_risk_model,
+    train_and_score_tail_risk,
+)
+from oil_risk.pipelines.data_views import load_feature_frame
 
 FEATURES = ["oil_return", "dVIX", "dOVX", "usd_change", "rate_change", "news_risk_score"]
 
@@ -42,6 +48,50 @@ def run() -> None:
     )
     out = out[["date", "state_id", "state_label", "state_probabilities_json"]]
     write_dataframe(out, "model_state", replace=True)
+
+    try:
+        tail_input = load_feature_frame()
+        tail_dataset = build_tail_risk_dataset(tail_input)
+        tail_model, tail_scored = train_and_score_tail_risk(tail_dataset)
+        tail_model_path = settings.models_dir / f"tail_risk_logistic_{stamp}.joblib"
+        save_tail_risk_model(tail_model, str(tail_model_path))
+
+        tail_scores = tail_scored.reset_index().rename(columns={"index": "date"})
+        tail_scores["date"] = pd.to_datetime(tail_scores["date"]).dt.date
+        tail_scores["feature_snapshot_json"] = tail_scores.apply(
+            lambda row: json.dumps(
+                {
+                    key: row[key]
+                    for key in tail_scores.columns
+                    if key
+                    not in {
+                        "date",
+                        "target",
+                        "tail_risk_prob",
+                        "target_horizon",
+                        "model_name",
+                        "created_at",
+                    }
+                }
+            ),
+            axis=1,
+        )
+        write_dataframe(
+            tail_scores[
+                [
+                    "date",
+                    "target_horizon",
+                    "tail_risk_prob",
+                    "model_name",
+                    "created_at",
+                    "feature_snapshot_json",
+                ]
+            ],
+            "tail_risk_predictions",
+            replace=True,
+        )
+    except ValueError as exc:
+        logging.warning("Tail risk training skipped: %s", exc)
     logging.info("Model trained and state table updated")
 
 

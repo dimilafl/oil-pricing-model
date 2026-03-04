@@ -46,6 +46,12 @@ def main() -> None:
         fig = px.line(of, x="date", y="feature_value", title="options_put_call_ratio_mean")
         st.plotly_chart(fig, use_container_width=True)
 
+    tail = read_sql("SELECT date, tail_risk_prob FROM tail_risk_predictions ORDER BY date")
+    if not tail.empty:
+        tail["date"] = pd.to_datetime(tail["date"])
+        fig = px.line(tail, x="date", y="tail_risk_prob", title="Tail risk probability")
+        st.plotly_chart(fig, use_container_width=True)
+
     ms = read_sql("SELECT date, state_id, state_label FROM model_state")
     if not ms.empty:
         ms["date"] = pd.to_datetime(ms["date"])
@@ -65,6 +71,11 @@ def main() -> None:
             st.dataframe(
                 triggered[["signal_name", "signal_value", "metadata_json"]], hide_index=True
             )
+
+        evidence_path = Path("artifacts") / f"evidence_{latest_date}.md"
+        if evidence_path.exists():
+            st.subheader("Latest evidence pack")
+            st.markdown(evidence_path.read_text(encoding="utf-8"))
 
     rep = read_sql("SELECT path FROM reports ORDER BY created_at DESC LIMIT 1")
     if not rep.empty:

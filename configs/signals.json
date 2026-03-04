@@ -1,0 +1,29 @@
+{
+  "risk_premium_alert": {
+    "enabled": true,
+    "ovx_z_min": 1.0,
+    "news_risk_min": 1.0
+  },
+  "macro_stress_alert": {
+    "enabled": true,
+    "vix_z_min": 1.0,
+    "oil_return_min": -0.02
+  },
+  "correlation_break_alert": {
+    "enabled": true,
+    "corr_min": -0.3,
+    "corr_feature_preference": ["oil_spx_corr_63", "oil_vix_corr_63_proxy"]
+  },
+  "hedging_pressure_alert": {
+    "enabled": true,
+    "unusual_put_required": true,
+    "vix_z_min": 1.0
+  },
+  "tail_risk_alert": {
+    "enabled": true,
+    "tail_risk_prob_min": 0.5
+  },
+  "tuning": {
+    "max_trigger_rate": 0.2
+  }
+}
