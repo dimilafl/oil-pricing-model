@@ -18,6 +18,7 @@ def run() -> Path:
     opt = read_sql("SELECT date, feature_name, feature_value FROM options_features")
     st = read_sql("SELECT * FROM model_state ORDER BY date DESC LIMIT 1")
     sg = read_sql("SELECT * FROM signals")
+    ev = read_sql("SELECT * FROM signal_eval ORDER BY created_at DESC")
 
     mkt["date"] = pd.to_datetime(mkt["date"])
     nws["date"] = pd.to_datetime(nws["date"])
@@ -63,6 +64,13 @@ def run() -> Path:
     for _, row in latest_signals.iterrows():
         lines.append(
             f"- {row['signal_name']}: {bool(row['signal_value'])}, details: {row['metadata_json']}"
+        )
+
+    if not ev.empty:
+        latest_eval = ev.iloc[0]
+        lines.extend(["", "## Evaluation snapshot"])
+        lines.append(
+            f"- {latest_eval['eval_name']} ({latest_eval['date']}): {latest_eval['eval_json']}"
         )
 
     path = settings.reports_dir / f"report_{latest_date.isoformat()}.md"

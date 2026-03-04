@@ -107,6 +107,16 @@ signals = Table(
     Column("metadata_json", JSON, nullable=False),
 )
 
+
+signal_eval = Table(
+    "signal_eval",
+    metadata,
+    Column("date", Date, nullable=False),
+    Column("eval_name", String, nullable=False),
+    Column("eval_json", JSON, nullable=False),
+    Column("created_at", DateTime, nullable=False, default=datetime.utcnow),
+)
+
 reports = Table(
     "reports",
     metadata,

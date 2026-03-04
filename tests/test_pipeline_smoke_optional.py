@@ -13,7 +13,15 @@ def test_build_features_smoke_without_optional_keys(monkeypatch, tmp_path):
             "series_id": [
                 sid
                 for _ in dates
-                for sid in ["DCOILWTICO", "DCOILBRENTEU", "VIXCLS", "OVXCLS", "DTWEXBGS", "DGS10", "SP500"]
+                for sid in [
+                    "DCOILWTICO",
+                    "DCOILBRENTEU",
+                    "VIXCLS",
+                    "OVXCLS",
+                    "DTWEXBGS",
+                    "DGS10",
+                    "SP500",
+                ]
             ],
             "date": [d for d in dates for _ in range(7)],
             "value": [100 + i for i in range(len(dates) * 7)],
@@ -59,7 +67,9 @@ def test_build_features_smoke_without_optional_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(build_features, "write_dataframe", fake_write)
     monkeypatch.setattr(build_features.pd, "read_parquet", lambda _: news_norm)
     build_features.settings.cache_dir.mkdir(parents=True, exist_ok=True)
-    (build_features.settings.cache_dir / "news_normalized.parquet").write_text("x", encoding="utf-8")
+    (build_features.settings.cache_dir / "news_normalized.parquet").write_text(
+        "x", encoding="utf-8"
+    )
 
     build_features.run()
 

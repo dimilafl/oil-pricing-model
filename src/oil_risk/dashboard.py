@@ -52,11 +52,34 @@ def main() -> None:
         fig = px.scatter(ms, x="date", y="state_id", color="state_label", title="Regime timeline")
         st.plotly_chart(fig, use_container_width=True)
 
+    signals = read_sql("SELECT * FROM signals ORDER BY date DESC")
+    if not signals.empty:
+        latest_date = str(signals.iloc[0]["date"])
+        triggered = signals[
+            (signals["date"].astype(str) == latest_date) & (signals["signal_value"] == 1.0)
+        ]
+        st.subheader(f"Triggered signals ({latest_date})")
+        if triggered.empty:
+            st.write("No triggered signals on latest date.")
+        else:
+            st.dataframe(
+                triggered[["signal_name", "signal_value", "metadata_json"]], hide_index=True
+            )
+
     rep = read_sql("SELECT path FROM reports ORDER BY created_at DESC LIMIT 1")
     if not rep.empty:
         path = Path(rep.iloc[0]["path"])
         if path.exists():
             st.markdown(path.read_text(encoding="utf-8"))
+
+    eval_rep = read_sql(
+        "SELECT path FROM reports WHERE path LIKE 'reports/eval_%' ORDER BY created_at DESC LIMIT 1"
+    )
+    if not eval_rep.empty:
+        eval_path = Path(eval_rep.iloc[0]["path"])
+        if eval_path.exists():
+            st.subheader("Latest signal evaluation")
+            st.markdown(eval_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
