@@ -98,6 +98,18 @@ model_state = Table(
     Column("state_probabilities_json", JSON, nullable=False),
 )
 
+tail_risk_predictions = Table(
+    "tail_risk_predictions",
+    metadata,
+    Column("date", Date, nullable=False),
+    Column("target_horizon", String, nullable=False),
+    Column("tail_risk_prob", Float, nullable=False),
+    Column("model_name", String, nullable=False),
+    Column("created_at", DateTime, nullable=False, default=datetime.utcnow),
+    Column("feature_snapshot_json", JSON, nullable=False),
+)
+
+
 signals = Table(
     "signals",
     metadata,
@@ -105,6 +117,17 @@ signals = Table(
     Column("signal_name", String, nullable=False),
     Column("signal_value", Float, nullable=False),
     Column("metadata_json", JSON, nullable=False),
+)
+
+
+tuning_runs = Table(
+    "tuning_runs",
+    metadata,
+    Column("run_id", String, nullable=False),
+    Column("created_at", DateTime, nullable=False, default=datetime.utcnow),
+    Column("metric_name", String, nullable=False),
+    Column("best_params_json", JSON, nullable=False),
+    Column("leaderboard_json", JSON, nullable=False),
 )
 
 

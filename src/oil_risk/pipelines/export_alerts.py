@@ -5,6 +5,7 @@ from pathlib import Path
 
 from oil_risk.db.io import read_sql
 from oil_risk.logging_utils import setup_logging
+from oil_risk.pipelines.build_evidence_pack import run as build_evidence_pack
 
 
 def _parse_json(value: object) -> dict[str, object]:
@@ -36,6 +37,9 @@ def run() -> Path:
 
     state = read_sql("SELECT * FROM model_state ORDER BY date DESC LIMIT 1")
     sig = read_sql("SELECT * FROM signals ORDER BY date DESC")
+    tail = read_sql(
+        "SELECT date, tail_risk_prob FROM tail_risk_predictions ORDER BY date DESC LIMIT 1"
+    )
 
     latest_date = None
     latest_state: dict[str, object] = {}
@@ -72,11 +76,22 @@ def run() -> Path:
         }
     )
 
+    evidence_pack_path = None
+    if latest_date is not None:
+        _, evidence_md = build_evidence_pack(latest_date=latest_date)
+        evidence_pack_path = str(evidence_md)
+
+    tail_prob = None
+    if not tail.empty:
+        tail_prob = float(tail.iloc[0]["tail_risk_prob"])
+
     alerts = {
         "latest_date": latest_date,
         "state": latest_state,
         "triggered_signals": triggered_signals,
         "news": news_snapshot,
+        "tail_risk_prob": tail_prob,
+        "evidence_pack_path": evidence_pack_path,
     }
 
     out_path = out_dir / "alerts.json"

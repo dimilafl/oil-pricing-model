@@ -54,9 +54,19 @@ def test_pipeline_smoke_no_network(monkeypatch, tmp_path):
             return signals.tail(3).copy()
         if "FROM news_features" in query:
             return pd.DataFrame([{"feature_name": "geopolitical_risk_score", "feature_value": 0.0}])
+        if "FROM tail_risk_predictions" in query:
+            return pd.DataFrame(columns=["date", "tail_risk_prob"])
         raise AssertionError(query)
 
     monkeypatch.setattr(export_alerts, "read_sql", fake_alerts_read)
+    monkeypatch.setattr(
+        export_alerts,
+        "build_evidence_pack",
+        lambda latest_date: (
+            tmp_path / "artifacts" / f"evidence_{latest_date}.json",
+            tmp_path / "artifacts" / f"evidence_{latest_date}.md",
+        ),
+    )
     monkeypatch.chdir(tmp_path)
     export_alerts.run()
 
