@@ -102,6 +102,8 @@ Pulled and cached to `data/cache/fred_<SERIES>.parquet`.
 * 10Y: `DGS10`
 * S&P 500 index: `SP500`
 
+All market series are daily FRED time series and are forward-filled onto a daily index before feature engineering.
+
 ### News (GDELT DOC API, no key)
 
 Pulled via the GDELT DOC API. Default lookback is controlled by `LOOKBACK_DAYS` (default 90). Cached to:
@@ -204,6 +206,8 @@ Summaries stored:
 * triggered signal summary
 * state summary
 * state plus signal summary (triggered only)
+* lag effect summary (`lag_effect_summary`): bins `spx_return_lag1` into `strong_down`, `flat`, `strong_up` and reports count/mean/median for `fwd_1d`, `fwd_5d`, `fwd_10d`
+* overreaction fade summary (`overreaction_fade_summary`): identifies `abs(oil_outlier_move_z) >= 2.0` (computed internally from 21d realized vol when missing) and reports count/mean/median for `fwd_1d`, `fwd_3d`, `fwd_5d` plus `reversal_rate_3d`
 
 Note: because `signals` is latest-date only, evaluation output will be thin unless signal history is persisted.
 
@@ -228,6 +232,8 @@ Dashboard shows:
 * regime scatter timeline
 * triggered signals table for the latest date
 * renders the latest report and latest evaluation markdown if present
+* includes lag/overreaction diagnostic charts for `spx_return`, `spx_return_lag1`, and `oil_outlier_move_z` when features exist
+* includes the latest `lag_effect_summary` and `overreaction_fade_summary` tables from `signal_eval`
 
 ## Windows (PowerShell, no make)
 

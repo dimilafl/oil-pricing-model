@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,6 +9,15 @@ import pandas as pd
 from oil_risk.config import settings
 from oil_risk.db.io import read_sql, write_dataframe
 from oil_risk.logging_utils import setup_logging
+
+
+def _latest_eval_rows(ev: pd.DataFrame, eval_name: str) -> list[dict]:
+    if ev.empty:
+        return []
+    chunk = ev[ev["eval_name"] == eval_name]
+    if chunk.empty:
+        return []
+    return json.loads(chunk.iloc[0]["eval_json"])
 
 
 def run() -> Path:
@@ -91,6 +101,36 @@ def run() -> Path:
         lines.append(
             f"- {latest_eval['eval_name']} ({latest_eval['date']}): {latest_eval['eval_json']}"
         )
+
+        lag_rows = _latest_eval_rows(ev, "lag_effect_summary")
+        overreaction_rows = _latest_eval_rows(ev, "overreaction_fade_summary")
+        lines.extend(["", "## Lag and overreaction diagnostics"])
+        if lag_rows:
+            lines.append("### Lag effect (latest)")
+            for row in lag_rows:
+                lines.append(
+                    "- "
+                    f"{row['lag_bin']}: n={int(row['count'])}, "
+                    f"mean(fwd_1d)={float(row['mean_fwd_1d']):.4f}, "
+                    f"mean(fwd_5d)={float(row['mean_fwd_5d']):.4f}, "
+                    f"mean(fwd_10d)={float(row['mean_fwd_10d']):.4f}"
+                )
+        else:
+            lines.append("- Lag effect summary not available")
+
+        if overreaction_rows:
+            row = overreaction_rows[0]
+            lines.append("### Overreaction fade (latest)")
+            lines.append(
+                "- "
+                f"n={int(row['count'])}, "
+                f"mean(fwd_1d)={float(row['mean_fwd_1d']):.4f}, "
+                f"mean(fwd_3d)={float(row['mean_fwd_3d']):.4f}, "
+                f"mean(fwd_5d)={float(row['mean_fwd_5d']):.4f}, "
+                f"reversal_rate_3d={float(row['reversal_rate_3d']):.4f}"
+            )
+        else:
+            lines.append("- Overreaction fade summary not available")
 
     path = settings.reports_dir / f"report_{latest_date.isoformat()}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
