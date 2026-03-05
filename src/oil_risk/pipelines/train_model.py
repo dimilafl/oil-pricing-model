@@ -17,7 +17,14 @@ from oil_risk.modeling.tail_risk import (
 )
 from oil_risk.pipelines.data_views import load_feature_frame
 
-FEATURES = ["oil_return", "dVIX", "dOVX", "usd_change", "rate_change", "news_risk_score"]
+BASE_FEATURES = ["oil_return", "dVIX", "dOVX", "usd_change", "rate_change", "news_risk_score"]
+LAGGED_FEATURES = ["spx_return_lag1", "dVIX_lag1", "news_risk_score_lag1", "lagged_risk_pressure"]
+
+
+def _model_features() -> list[str]:
+    if settings.model_feature_set == "lagged":
+        return BASE_FEATURES + LAGGED_FEATURES
+    return BASE_FEATURES
 
 
 def _assemble_training_frame() -> pd.DataFrame:
@@ -28,13 +35,22 @@ def _assemble_training_frame() -> pd.DataFrame:
     mw = mkt.pivot_table(index="date", columns="feature_name", values="feature_value")
     nw = nws.pivot_table(index="date", columns="feature_name", values="feature_value")
     nw = nw.rename(columns={"geopolitical_risk_score": "news_risk_score"})
-    return mw.join(nw[["news_risk_score"]], how="inner").sort_index()
+    return mw.join(nw, how="inner").sort_index()
 
 
 def run() -> None:
     setup_logging()
     train_df = _assemble_training_frame()
-    model, state_df = train_regime_model(train_df, FEATURES)
+    features = _model_features()
+    missing = [col for col in features if col not in train_df.columns]
+    if missing:
+        if settings.model_feature_set == "lagged":
+            raise ValueError(
+                "Missing lagged model features: " + ", ".join(missing) + ". Run oil-build-features to regenerate feature tables."
+            )
+        raise ValueError("Missing required model features: " + ", ".join(missing))
+
+    model, state_df = train_regime_model(train_df, features)
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     model_path = settings.models_dir / f"regime_gmm_{stamp}.joblib"

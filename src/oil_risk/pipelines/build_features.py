@@ -6,7 +6,12 @@ import pandas as pd
 
 from oil_risk.config import settings
 from oil_risk.db.io import read_sql, write_dataframe
-from oil_risk.features import build_market_features, build_news_features, build_options_features
+from oil_risk.features import (
+    build_market_features,
+    build_news_features,
+    build_options_features,
+    robust_z,
+)
 from oil_risk.logging_utils import setup_logging
 
 
@@ -16,13 +21,6 @@ def run() -> None:
     mkt["date"] = pd.to_datetime(mkt["date"])
     wide = mkt.pivot_table(index="date", columns="series_id", values="value").sort_index().ffill()
     mfeatures = build_market_features(wide)
-    mlong = (
-        mfeatures.reset_index()
-        .melt(id_vars=["date"], var_name="feature_name", value_name="feature_value")
-        .dropna(subset=["feature_value"])
-    )
-    mlong["date"] = pd.to_datetime(mlong["date"]).dt.date
-    write_dataframe(mlong, "market_features", replace=True)
 
     ofeatures = pd.DataFrame()
     opt_raw = read_sql("SELECT ticker, date, metric_name, metric_value FROM options_raw")
@@ -45,6 +43,19 @@ def run() -> None:
             "FROM news_raw r JOIN news_llm l ON r.id = l.id"
         )
         nfeatures = build_news_features(news_norm, llm)
+        lagged_components = mfeatures.join(nfeatures[["news_risk_score_lag1"]], how="left")
+        mfeatures["lagged_risk_pressure"] = (
+            robust_z(lagged_components["dVIX_lag1"])
+            + robust_z(lagged_components["news_risk_score_lag1"])
+            - robust_z(lagged_components["spx_return_lag1"])
+        )
+        mlong = (
+            mfeatures.reset_index()
+            .melt(id_vars=["date"], var_name="feature_name", value_name="feature_value")
+            .dropna(subset=["feature_value"])
+        )
+        mlong["date"] = pd.to_datetime(mlong["date"]).dt.date
+        write_dataframe(mlong, "market_features", replace=True)
         nlong = (
             nfeatures.reset_index()
             .melt(id_vars=["date"], var_name="feature_name", value_name="feature_value")
@@ -53,6 +64,13 @@ def run() -> None:
         write_dataframe(nlong, "news_features", replace=True)
         logging.info("Wrote market, options, and news features")
     else:
+        mlong = (
+            mfeatures.reset_index()
+            .melt(id_vars=["date"], var_name="feature_name", value_name="feature_value")
+            .dropna(subset=["feature_value"])
+        )
+        mlong["date"] = pd.to_datetime(mlong["date"]).dt.date
+        write_dataframe(mlong, "market_features", replace=True)
         logging.warning("No normalized news parquet found, skipping news features")
 
 

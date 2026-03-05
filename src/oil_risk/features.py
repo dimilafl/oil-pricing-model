@@ -30,6 +30,14 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         df["oil_spx_corr_63"] = df["oil_return"].rolling(63).corr(df["spx_return"])
     df["oil_realized_vol_10d"] = df["oil_return"].rolling(10).std()
     df["oil_realized_vol_21d"] = df["oil_return"].rolling(21).std()
+    for lag in (1, 2, 3):
+        df[f"spx_return_lag{lag}"] = df.get("spx_return", pd.Series(index=df.index)).shift(lag)
+        df[f"oil_return_lag{lag}"] = df["oil_return"].shift(lag)
+        df[f"dVIX_lag{lag}"] = df["dVIX"].shift(lag)
+        df[f"dOVX_lag{lag}"] = df["dOVX"].shift(lag)
+    oil_vol = df["oil_realized_vol_21d"].replace(0, np.nan)
+    df["oil_outlier_move_z"] = df["oil_return"] / oil_vol
+    df["oil_overreaction_flag"] = (df["oil_outlier_move_z"].abs() >= 2.0).astype(float)
     df["usd_level"] = df["DTWEXBGS"]
     df["usd_change"] = df["DTWEXBGS"].diff()
     df["rate_level"] = df["DGS10"]
@@ -46,6 +54,21 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         "oil_spx_corr_63",
         "oil_realized_vol_10d",
         "oil_realized_vol_21d",
+        "spx_return_lag1",
+        "spx_return_lag2",
+        "spx_return_lag3",
+        "oil_return_lag1",
+        "oil_return_lag2",
+        "oil_return_lag3",
+        "dVIX_lag1",
+        "dVIX_lag2",
+        "dVIX_lag3",
+        "dOVX_lag1",
+        "dOVX_lag2",
+        "dOVX_lag3",
+        "oil_outlier_move_z",
+        "oil_overreaction_flag",
+        "lagged_risk_pressure",
         "usd_level",
         "usd_change",
         "rate_level",
@@ -88,6 +111,8 @@ def build_news_features(
             grouped["intensity_sum"]
         )
 
+    for lag in (1, 2, 3):
+        grouped[f"news_risk_score_lag{lag}"] = grouped["geopolitical_risk_score"].shift(lag)
     return grouped
 
 

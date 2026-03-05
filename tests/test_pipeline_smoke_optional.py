@@ -78,3 +78,5 @@ def test_build_features_smoke_without_optional_keys(monkeypatch, tmp_path):
     assert "options_features" not in writes
     assert (writes["news_features"]["feature_name"] == "geopolitical_risk_score").any()
     assert (writes["market_features"]["feature_name"] == "oil_spx_corr_63").any()
+    assert (writes["market_features"]["feature_name"] == "lagged_risk_pressure").any()
+    assert (writes["market_features"]["feature_name"] == "oil_overreaction_flag").any()
