@@ -29,6 +29,9 @@ eval:
 export-alerts:
 	$(BIN)/oil-export-alerts
 
+export-signal-engine:
+	$(BIN)/oil-export-signal-engine
+
 dashboard:
 	$(BIN)/streamlit run src/oil_risk/dashboard.py
 
@@ -45,6 +48,7 @@ daily:
 	$(MAKE) eval
 	$(MAKE) report
 	$(MAKE) export-alerts
+	$(MAKE) export-signal-engine
 
 smoke:
 	$(BIN)/ruff check .
