@@ -86,3 +86,10 @@ Console scripts (installed into the venv):
   - reports: `reports/`
   - alerts: `artifacts/alerts.json`
   - DB: `data/oil_risk.db`
+
+
+## Data cadence and diagnostics
+
+- Market inputs are daily FRED series (e.g., WTI, VIX, SP500) and should be treated as daily-frequency features.
+- Evaluation now includes `lag_effect_summary` and `overreaction_fade_summary` in `signal_eval`; rendered in `reports/eval_<YYYY-MM-DD>.md` and surfaced in the dashboard/report.
+- Common operator commands for this flow: `make daily`, `make smoke`, `make eval`, `make dashboard`.

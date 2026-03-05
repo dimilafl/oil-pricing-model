@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,19 @@ def main() -> None:
         corr["date"] = pd.to_datetime(corr["date"])
         fig = px.line(corr, x="date", y="feature_value", title="oil_spx_corr_63")
         st.plotly_chart(fig, use_container_width=True)
+
+    diag_features = read_sql(
+        "SELECT date, feature_name, feature_value FROM market_features "
+        "WHERE feature_name IN ('spx_return', 'spx_return_lag1', 'oil_outlier_move_z')"
+    )
+    if not diag_features.empty:
+        diag_features["date"] = pd.to_datetime(diag_features["date"])
+        for feature in ["spx_return", "spx_return_lag1", "oil_outlier_move_z"]:
+            chunk = diag_features[diag_features["feature_name"] == feature]
+            if chunk.empty:
+                continue
+            fig = px.line(chunk, x="date", y="feature_value", title=feature)
+            st.plotly_chart(fig, use_container_width=True)
 
     nf = read_sql(
         "SELECT date, feature_name, feature_value FROM news_features "
@@ -91,6 +105,22 @@ def main() -> None:
         if eval_path.exists():
             st.subheader("Latest signal evaluation")
             st.markdown(eval_path.read_text(encoding="utf-8"))
+
+    latest_eval = read_sql(
+        "SELECT eval_name, eval_json, date FROM signal_eval "
+        "WHERE eval_name IN ('lag_effect_summary', 'overreaction_fade_summary') "
+        "ORDER BY created_at DESC"
+    )
+    if not latest_eval.empty:
+        st.subheader("Latest lag and overreaction diagnostics")
+        for eval_name in ["lag_effect_summary", "overreaction_fade_summary"]:
+            chunk = latest_eval[latest_eval["eval_name"] == eval_name]
+            if chunk.empty:
+                continue
+            row = chunk.iloc[0]
+            parsed = json.loads(row["eval_json"])
+            st.caption(f"{eval_name} ({row['date']})")
+            st.dataframe(pd.DataFrame(parsed), hide_index=True)
 
 
 if __name__ == "__main__":

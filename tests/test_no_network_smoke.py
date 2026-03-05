@@ -4,10 +4,12 @@ from oil_risk.pipelines import evaluate_signals, export_alerts
 
 
 def test_pipeline_smoke_no_network(monkeypatch, tmp_path):
+    dates = pd.date_range("2024-01-01", periods=12, freq="D").strftime("%Y-%m-%d")
     market = pd.DataFrame(
         {
-            "date": pd.date_range("2024-01-01", periods=12, freq="D").strftime("%Y-%m-%d"),
-            "oil_return": [0.01] * 12,
+            "date": list(dates),
+            "feature_name": ["oil_return"] * 12,
+            "feature_value": [0.01] * 12,
         }
     )
     state = pd.DataFrame(
@@ -31,7 +33,7 @@ def test_pipeline_smoke_no_network(monkeypatch, tmp_path):
 
     def fake_eval_read(query: str):
         if "FROM market_features" in query:
-            return market[["date", "oil_return"]].copy()
+            return market.copy()
         if "FROM model_state" in query:
             return state[["date", "state_id", "state_label"]].copy()
         if "FROM signals" in query:

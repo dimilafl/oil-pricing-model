@@ -97,22 +97,114 @@ def _as_markdown_table(df: pd.DataFrame) -> str:
     return "\n".join([header, divider, *rows])
 
 
+def _summarize_lag_effect(mkt: pd.DataFrame) -> pd.DataFrame:
+    frame = mkt.copy()
+    if "spx_return_lag1" not in frame.columns:
+        frame["spx_return_lag1"] = frame["spx_return"].shift(1)
+
+    frame["lag_bin"] = pd.NA
+    frame.loc[frame["spx_return_lag1"] <= -0.01, "lag_bin"] = "strong_down"
+    frame.loc[frame["spx_return_lag1"].between(-0.003, 0.003, inclusive="both"), "lag_bin"] = "flat"
+    frame.loc[frame["spx_return_lag1"] >= 0.01, "lag_bin"] = "strong_up"
+    filtered = frame[frame["lag_bin"].notna()].copy()
+    if filtered.empty:
+        return pd.DataFrame(
+            columns=[
+                "lag_bin",
+                "count",
+                "mean_fwd_1d",
+                "mean_fwd_5d",
+                "mean_fwd_10d",
+                "median_fwd_1d",
+                "median_fwd_5d",
+                "median_fwd_10d",
+            ]
+        )
+
+    grouped = filtered.groupby("lag_bin", observed=True).agg(
+        count=("date", "count"),
+        mean_fwd_1d=("fwd_1d", "mean"),
+        mean_fwd_5d=("fwd_5d", "mean"),
+        mean_fwd_10d=("fwd_10d", "mean"),
+        median_fwd_1d=("fwd_1d", "median"),
+        median_fwd_5d=("fwd_5d", "median"),
+        median_fwd_10d=("fwd_10d", "median"),
+    )
+    return grouped.reset_index().sort_values(
+        "lag_bin", key=lambda s: s.map({"strong_down": 0, "flat": 1, "strong_up": 2})
+    )
+
+
+def _summarize_overreaction_fade(mkt: pd.DataFrame) -> pd.DataFrame:
+    frame = mkt.copy()
+    if "oil_outlier_move_z" not in frame.columns:
+        vol_21d = frame["oil_return"].rolling(21, min_periods=21).std()
+        frame["oil_outlier_move_z"] = frame["oil_return"] / vol_21d
+
+    overreaction = frame[frame["oil_outlier_move_z"].abs() >= 2.0].copy()
+    if overreaction.empty:
+        return pd.DataFrame(
+            columns=[
+                "segment",
+                "count",
+                "mean_fwd_1d",
+                "mean_fwd_3d",
+                "mean_fwd_5d",
+                "median_fwd_1d",
+                "median_fwd_3d",
+                "median_fwd_5d",
+                "reversal_rate_3d",
+            ]
+        )
+
+    move_sign = overreaction["oil_return"].apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    reversed_3d = (move_sign * overreaction["fwd_3d"]) < 0
+    summary = pd.DataFrame(
+        [
+            {
+                "segment": "overreaction_days",
+                "count": int(len(overreaction)),
+                "mean_fwd_1d": overreaction["fwd_1d"].mean(),
+                "mean_fwd_3d": overreaction["fwd_3d"].mean(),
+                "mean_fwd_5d": overreaction["fwd_5d"].mean(),
+                "median_fwd_1d": overreaction["fwd_1d"].median(),
+                "median_fwd_3d": overreaction["fwd_3d"].median(),
+                "median_fwd_5d": overreaction["fwd_5d"].median(),
+                "reversal_rate_3d": reversed_3d.mean(),
+            }
+        ]
+    )
+    return summary
+
+
 def run() -> Path:
     setup_logging()
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
 
-    mkt = read_sql(
-        "SELECT date, feature_value AS oil_return FROM market_features WHERE feature_name='oil_return'"
+    mkt_raw = read_sql(
+        "SELECT date, feature_name, feature_value FROM market_features "
+        "WHERE feature_name IN ('oil_return', 'spx_return', 'spx_return_lag1', 'oil_outlier_move_z')"
     )
     states = read_sql("SELECT date, state_id, state_label FROM model_state")
     sig = read_sql("SELECT date, signal_name, signal_value FROM signals")
 
-    if mkt.empty:
+    if mkt_raw.empty:
         raise ValueError("market_features is empty; run feature pipeline first")
+
+    mkt = (
+        mkt_raw.pivot_table(
+            index="date", columns="feature_name", values="feature_value", aggfunc="last"
+        )
+        .reset_index()
+        .rename_axis(None, axis=1)
+    )
+    if "oil_return" not in mkt.columns:
+        raise ValueError("oil_return feature missing; run feature pipeline first")
 
     mkt["date"] = pd.to_datetime(mkt["date"])
     mkt = mkt.sort_values("date")
     mkt["fwd_1d"] = _forward_return_sums(mkt["oil_return"], 1)
+    mkt["fwd_3d"] = _forward_return_sums(mkt["oil_return"], 3)
     mkt["fwd_5d"] = _forward_return_sums(mkt["oil_return"], 5)
     mkt["fwd_10d"] = _forward_return_sums(mkt["oil_return"], 10)
 
@@ -133,6 +225,8 @@ def run() -> Path:
     by_signal = _summarize_triggered(signals_with_returns)
     by_state = _summarize_by_state(state_with_returns)
     by_state_signal = _summarize_state_signal(signals_with_state)
+    lag_effect = _summarize_lag_effect(mkt) if "spx_return" in mkt.columns else pd.DataFrame()
+    overreaction_fade = _summarize_overreaction_fade(mkt)
 
     latest_date = mkt["date"].max().date()
     created_at = datetime.now(UTC).isoformat()
@@ -141,6 +235,8 @@ def run() -> Path:
         "triggered_signal_summary": by_signal,
         "state_summary": by_state,
         "state_signal_triggered_summary": by_state_signal,
+        "lag_effect_summary": lag_effect,
+        "overreaction_fade_summary": overreaction_fade,
     }.items():
         eval_records.append(
             {
@@ -163,6 +259,12 @@ def run() -> Path:
         "",
         "## Triggered signal summary by state",
         _as_markdown_table(by_state_signal),
+        "",
+        "## Lag effect summary",
+        _as_markdown_table(lag_effect),
+        "",
+        "## Overreaction fade summary",
+        _as_markdown_table(overreaction_fade),
     ]
     eval_report = settings.reports_dir / f"eval_{latest_date.isoformat()}.md"
     eval_report.write_text("\n".join(report_lines), encoding="utf-8")
