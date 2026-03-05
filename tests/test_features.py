@@ -69,7 +69,6 @@ def test_build_options_features():
     assert "unusual_put_activity" in out.columns
 
 
-
 def test_build_market_features_lag_and_overreaction_features():
     idx = pd.date_range("2024-01-01", periods=40, freq="D")
     df = pd.DataFrame(
@@ -113,7 +112,8 @@ def test_build_news_features_adds_lags():
         }
     )
     out = build_news_features(news)
-    assert out.loc[pd.Timestamp("2024-01-04").date(), "news_risk_score_lag1"] == out.loc[
-        pd.Timestamp("2024-01-03").date(), "geopolitical_risk_score"
-    ]
+    assert (
+        out.loc[pd.Timestamp("2024-01-04").date(), "news_risk_score_lag1"]
+        == out.loc[pd.Timestamp("2024-01-03").date(), "geopolitical_risk_score"]
+    )
     assert "news_risk_score_lag3" in out.columns

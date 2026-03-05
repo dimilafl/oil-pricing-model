@@ -129,7 +129,10 @@ def run() -> None:
             "signal_name": "lagged_equity_pressure_alert",
             "signal_value": float(
                 lag_cfg["enabled"]
-                and (latest.get("lagged_risk_pressure", float("-inf")) > lag_cfg["lagged_risk_pressure_min"])
+                and (
+                    latest.get("lagged_risk_pressure", float("-inf"))
+                    > lag_cfg["lagged_risk_pressure_min"]
+                )
             ),
             "metadata_json": {
                 "lagged_risk_pressure": _safe_float(latest.get("lagged_risk_pressure")),

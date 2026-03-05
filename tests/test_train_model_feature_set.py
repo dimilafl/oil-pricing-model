@@ -46,7 +46,9 @@ def test_run_base_feature_set_uses_existing_features(monkeypatch, tmp_path):
     monkeypatch.setattr(train_model, "train_regime_model", fake_train_regime_model)
     monkeypatch.setattr(train_model, "save_model", lambda *args, **kwargs: None)
     monkeypatch.setattr(train_model, "load_feature_frame", lambda: pd.DataFrame())
-    monkeypatch.setattr(train_model, "build_tail_risk_dataset", lambda _: (_ for _ in ()).throw(ValueError("skip")))
+    monkeypatch.setattr(
+        train_model, "build_tail_risk_dataset", lambda _: (_ for _ in ()).throw(ValueError("skip"))
+    )
     monkeypatch.setattr(train_model, "write_dataframe", lambda *args, **kwargs: None)
 
     train_model.run()

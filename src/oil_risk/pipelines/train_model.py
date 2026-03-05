@@ -46,7 +46,9 @@ def run() -> None:
     if missing:
         if settings.model_feature_set == "lagged":
             raise ValueError(
-                "Missing lagged model features: " + ", ".join(missing) + ". Run oil-build-features to regenerate feature tables."
+                "Missing lagged model features: "
+                + ", ".join(missing)
+                + ". Run oil-build-features to regenerate feature tables."
             )
         raise ValueError("Missing required model features: " + ", ".join(missing))
 
