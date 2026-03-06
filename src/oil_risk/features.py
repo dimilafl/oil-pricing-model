@@ -28,6 +28,16 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
     if "SP500" in df.columns:
         df["spx_return"] = np.log(df["SP500"]).diff()
         df["oil_spx_corr_63"] = df["oil_return"].rolling(63).corr(df["spx_return"])
+
+    lag_sources = ["spx_return", "oil_return", "dVIX", "dOVX"]
+    for source in lag_sources:
+        if source not in df.columns:
+            continue
+        for lag in range(1, 4):
+            df[f"{source}_lag{lag}"] = df[source].shift(lag)
+
+    df["oil_outlier_move_z"] = robust_z(df["oil_return"])
+    df["oil_overreaction_flag"] = (df["oil_outlier_move_z"].abs() >= 2.0).astype(float)
     df["oil_realized_vol_10d"] = df["oil_return"].rolling(10).std()
     df["oil_realized_vol_21d"] = df["oil_return"].rolling(21).std()
     df["usd_level"] = df["DTWEXBGS"]
@@ -44,6 +54,20 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         "oil_vix_corr_63_proxy",
         "spx_return",
         "oil_spx_corr_63",
+        "spx_return_lag1",
+        "spx_return_lag2",
+        "spx_return_lag3",
+        "oil_return_lag1",
+        "oil_return_lag2",
+        "oil_return_lag3",
+        "dVIX_lag1",
+        "dVIX_lag2",
+        "dVIX_lag3",
+        "dOVX_lag1",
+        "dOVX_lag2",
+        "dOVX_lag3",
+        "oil_outlier_move_z",
+        "oil_overreaction_flag",
         "oil_realized_vol_10d",
         "oil_realized_vol_21d",
         "usd_level",
@@ -87,6 +111,9 @@ def build_news_features(
         grouped["geopolitical_risk_score"] = grouped["geopolitical_risk_score"] + 0.5 * robust_z(
             grouped["intensity_sum"]
         )
+
+    for lag in range(1, 4):
+        grouped[f"news_risk_score_lag{lag}"] = grouped["geopolitical_risk_score"].shift(lag)
 
     return grouped
 

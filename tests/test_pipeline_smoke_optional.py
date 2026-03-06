@@ -78,3 +78,41 @@ def test_build_features_smoke_without_optional_keys(monkeypatch, tmp_path):
     assert "options_features" not in writes
     assert (writes["news_features"]["feature_name"] == "geopolitical_risk_score").any()
     assert (writes["market_features"]["feature_name"] == "oil_spx_corr_63").any()
+    assert (writes["market_features"]["feature_name"] == "lagged_risk_pressure").any()
+
+
+def test_build_features_skips_lagged_pressure_when_sp500_missing(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "cache").mkdir(parents=True, exist_ok=True)
+
+    dates = [pd.Timestamp("2024-01-01") + pd.Timedelta(days=i) for i in range(10)]
+    market = pd.DataFrame(
+        {
+            "series_id": [
+                sid
+                for _ in dates
+                for sid in ["DCOILWTICO", "DCOILBRENTEU", "VIXCLS", "OVXCLS", "DTWEXBGS", "DGS10"]
+            ],
+            "date": [d for d in dates for _ in range(6)],
+            "value": [100 + i for i in range(len(dates) * 6)],
+        }
+    )
+
+    def fake_read_sql(query: str):
+        if "FROM market_raw" in query:
+            return market
+        if "FROM options_raw" in query:
+            return pd.DataFrame()
+        return pd.DataFrame()
+
+    writes = {}
+
+    def fake_write(df, table_name, replace=False):
+        writes[table_name] = df.copy()
+
+    monkeypatch.setattr(build_features, "read_sql", fake_read_sql)
+    monkeypatch.setattr(build_features, "write_dataframe", fake_write)
+    build_features.run()
+
+    assert "market_features" in writes
+    assert not (writes["market_features"]["feature_name"] == "lagged_risk_pressure").any()

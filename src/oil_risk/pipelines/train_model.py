@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -17,7 +18,17 @@ from oil_risk.modeling.tail_risk import (
 )
 from oil_risk.pipelines.data_views import load_feature_frame
 
-FEATURES = ["oil_return", "dVIX", "dOVX", "usd_change", "rate_change", "news_risk_score"]
+BASE_FEATURES = ["oil_return", "dVIX", "dOVX", "usd_change", "rate_change", "news_risk_score"]
+LAGGED_EXTENSION = [
+    "spx_return_lag1",
+    "dVIX_lag1",
+    "news_risk_score_lag1",
+    "lagged_risk_pressure",
+]
+MISSING_LAGGED_FEATURES_ERROR = (
+    "MODEL_FEATURE_SET=lagged requires columns: "
+    "spx_return_lag1, dVIX_lag1, news_risk_score_lag1, lagged_risk_pressure"
+)
 
 
 def _assemble_training_frame() -> pd.DataFrame:
@@ -31,10 +42,22 @@ def _assemble_training_frame() -> pd.DataFrame:
     return mw.join(nw[["news_risk_score"]], how="inner").sort_index()
 
 
+def _select_feature_columns(train_df: pd.DataFrame) -> list[str]:
+    feature_set = os.getenv("MODEL_FEATURE_SET", "base")
+    if feature_set == "base":
+        return BASE_FEATURES
+    if feature_set == "lagged":
+        missing = [feature for feature in LAGGED_EXTENSION if feature not in train_df.columns]
+        if missing:
+            raise ValueError(MISSING_LAGGED_FEATURES_ERROR)
+        return BASE_FEATURES + LAGGED_EXTENSION
+    raise ValueError("MODEL_FEATURE_SET must be one of: base, lagged")
+
+
 def run() -> None:
     setup_logging()
     train_df = _assemble_training_frame()
-    model, state_df = train_regime_model(train_df, FEATURES)
+    model, state_df = train_regime_model(train_df, _select_feature_columns(train_df))
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     model_path = settings.models_dir / f"regime_gmm_{stamp}.joblib"
