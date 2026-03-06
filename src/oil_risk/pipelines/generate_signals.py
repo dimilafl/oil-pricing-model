@@ -38,6 +38,7 @@ def run() -> None:
     corr_cfg = config["correlation_break_alert"]
     hedge_cfg = config["hedging_pressure_alert"]
     tail_cfg = config["tail_risk_alert"]
+    lagged_cfg = config["lagged_equity_pressure_alert"]
 
     corr_name, corr_value = _pick_corr_feature(latest, corr_cfg["corr_feature_preference"])
 
@@ -120,6 +121,21 @@ def run() -> None:
                 "thresholds": {
                     "unusual_put_required": hedge_cfg["unusual_put_required"],
                     "vix_z_min": hedge_cfg["vix_z_min"],
+                },
+            },
+        },
+        {
+            "date": dt,
+            "signal_name": "lagged_equity_pressure_alert",
+            "signal_value": float(
+                lagged_cfg["enabled"]
+                and latest.get("lagged_risk_pressure", float("-inf"))
+                > lagged_cfg["lagged_risk_pressure_min"]
+            ),
+            "metadata_json": {
+                "lagged_risk_pressure": _safe_float(latest.get("lagged_risk_pressure")),
+                "thresholds": {
+                    "lagged_risk_pressure_min": lagged_cfg["lagged_risk_pressure_min"],
                 },
             },
         },
