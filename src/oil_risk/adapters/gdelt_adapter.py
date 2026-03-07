@@ -41,6 +41,7 @@ class GdeltQuery:
     max_records: int = 1000
     page_size: int = 250
     use_legacy_lastupdate: bool = False
+    end_date: datetime | None = None
 
 
 class GdeltFetchError(RuntimeError):
@@ -124,11 +125,11 @@ class GdeltAdapter:
             f"Failed to fetch GDELT DOC API after {attempts} attempts"
         ) from last_error
 
-    def _build_degraded_norm_df(self, days: int) -> pd.DataFrame:
-        today = datetime.now(UTC).date()
+    def _build_degraded_norm_df(self, days: int, end_dt: datetime | None = None) -> pd.DataFrame:
+        anchor = (end_dt or datetime.now(UTC)).date()
         rows = [
             {
-                "date": today - timedelta(days=offset),
+                "date": anchor - timedelta(days=offset),
                 "article_count": 0,
                 "keyword_count": 0,
                 "tone": None,
@@ -137,8 +138,8 @@ class GdeltAdapter:
         ]
         return pd.DataFrame(rows)
 
-    def _fetch_api_records(self, query: GdeltQuery) -> list[dict]:
-        end_dt = datetime.now(UTC)
+    def _fetch_api_records(self, query: GdeltQuery) -> tuple[list[dict], datetime]:
+        end_dt = query.end_date or datetime.now(UTC)
         start_dt = end_dt - timedelta(days=query.days)
         cache_ttl_seconds = int(os.getenv("GDELT_CACHE_TTL_SECONDS", "1800"))
         raw_cache = (self.cache_dir / self._cache_key(query, end_dt)).with_suffix(".json")
@@ -195,10 +196,10 @@ class GdeltAdapter:
             cursor = next_cursor
 
         raw_cache.write_text(json.dumps(records), encoding="utf-8")
-        return records
+        return records, end_dt
 
-    def _api_to_frames(self, records: list[dict], days: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-        cutoff = datetime.now(UTC) - timedelta(days=days)
+    def _api_to_frames(self, records: list[dict], days: int, end_dt: datetime | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+        cutoff = (end_dt or datetime.now(UTC)) - timedelta(days=days)
         raw_rows: list[dict] = []
         norm_rows: list[dict] = []
         pulled_at = datetime.now(UTC)
@@ -270,8 +271,8 @@ class GdeltAdapter:
 
         if not query.use_legacy_lastupdate:
             try:
-                records = self._fetch_api_records(query)
-                return self._api_to_frames(records, query.days)
+                records, end_dt = self._fetch_api_records(query)
+                return self._api_to_frames(records, query.days, end_dt)
             except GdeltFetchError as exc:
                 if os.getenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1") != "1":
                     raise
@@ -285,11 +286,12 @@ class GdeltAdapter:
                     max_records=query.max_records,
                     page_size=query.page_size,
                     use_legacy_lastupdate=True,
+                    end_date=query.end_date,
                 )
 
         try:
             files = self._download_gkg_files(query)
-            cutoff = datetime.now(UTC) - timedelta(days=query.days)
+            cutoff = (query.end_date or datetime.now(UTC)) - timedelta(days=query.days)
             raw_rows: list[dict] = []
             norm_rows: list[dict] = []
 
@@ -358,4 +360,4 @@ class GdeltAdapter:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Legacy lastupdate ingestion failed; entering degraded mode: %s", exc)
             self.degraded_mode_used = True
-            return pd.DataFrame(), self._build_degraded_norm_df(query.days)
+            return pd.DataFrame(), self._build_degraded_norm_df(query.days, query.end_date)
