@@ -11,10 +11,8 @@ from oil_risk.db.schema import get_engine, init_db
 def write_dataframe(df: pd.DataFrame, table_name: str, replace: bool = False) -> None:
     init_db()
     engine = get_engine()
-    if replace:
-        with engine.begin() as conn:
-            conn.execute(text(f"DELETE FROM {table_name}"))
-    df.to_sql(table_name, engine, if_exists="append", index=False)
+    if_exists = "replace" if replace else "append"
+    df.to_sql(table_name, engine, if_exists=if_exists, index=False)
 
 
 def delete_by_date(table_name: str, dt: date) -> None:

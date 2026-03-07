@@ -95,7 +95,11 @@ def run() -> None:
         write_dataframe(raw_df, "news_raw", replace=False)
 
     norm_df.to_parquet(settings.cache_dir / "news_normalized.parquet", index=False)
-    write_dataframe(norm_df, "news_normalized", replace=True)
+    norm_df_db = norm_df.copy()
+    for col in ("themes", "persons", "organizations", "locations"):
+        if col in norm_df_db.columns:
+            norm_df_db[col] = norm_df_db[col].apply(json.dumps)
+    write_dataframe(norm_df_db, "news_normalized", replace=True)
 
     llm_df = _classify_news_once(raw_df)
     if not llm_df.empty:
