@@ -71,7 +71,7 @@ def main() -> None:
 
     status_df, missing_items = _build_data_status()
     st.subheader("Data status")
-    st.dataframe(status_df, hide_index=True, use_container_width=True)
+    st.dataframe(status_df, hide_index=True, width="stretch")
     st.subheader("What is missing")
     if missing_items:
         for item in missing_items:
@@ -86,7 +86,7 @@ def main() -> None:
         for sid in ["DCOILWTICO", "VIXCLS", "OVXCLS", "SP500"]:
             if sid in piv.columns:
                 fig = px.line(piv, x="date", y=sid, title=sid)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
     corr = _safe_read_sql(
         "SELECT date, feature_value FROM market_features WHERE feature_name='oil_spx_corr_63'"
@@ -94,7 +94,7 @@ def main() -> None:
     if not corr.empty:
         corr["date"] = pd.to_datetime(corr["date"])
         fig = px.line(corr, x="date", y="feature_value", title="oil_spx_corr_63")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     diag_features = _safe_read_sql(
         "SELECT date, feature_name, feature_value FROM market_features "
@@ -107,7 +107,7 @@ def main() -> None:
             if chunk.empty:
                 continue
             fig = px.line(chunk, x="date", y="feature_value", title=feature)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     nf = _safe_read_sql(
         "SELECT date, feature_name, feature_value FROM news_features "
@@ -118,7 +118,7 @@ def main() -> None:
         for feature in nf["feature_name"].unique():
             chunk = nf[nf["feature_name"] == feature]
             fig = px.line(chunk, x="date", y="feature_value", title=feature)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     of = _safe_read_sql(
         "SELECT date, feature_value FROM options_features WHERE feature_name='put_call_ratio_mean'"
@@ -126,19 +126,19 @@ def main() -> None:
     if not of.empty:
         of["date"] = pd.to_datetime(of["date"])
         fig = px.line(of, x="date", y="feature_value", title="options_put_call_ratio_mean")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     tail = _safe_read_sql("SELECT date, tail_risk_prob FROM tail_risk_predictions ORDER BY date")
     if not tail.empty:
         tail["date"] = pd.to_datetime(tail["date"])
         fig = px.line(tail, x="date", y="tail_risk_prob", title="Tail risk probability")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     ms = _safe_read_sql("SELECT date, state_id, state_label FROM model_state")
     if not ms.empty:
         ms["date"] = pd.to_datetime(ms["date"])
         fig = px.scatter(ms, x="date", y="state_id", color="state_label", title="Regime timeline")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     signals = _safe_read_sql("SELECT * FROM signals ORDER BY date DESC")
     if not signals.empty:
