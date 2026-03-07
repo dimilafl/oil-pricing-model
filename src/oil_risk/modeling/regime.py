@@ -31,7 +31,11 @@ def train_regime_model(
         out[f"p_state_{i}"] = probs[:, i]
     means = train.groupby(states).mean()
     rank = means["news_risk_score"].sort_values().index.tolist()
-    label_map = {rank[0]: "low_risk", rank[1]: "medium_risk", rank[2]: "high_risk"}
+    _state_labels = ["low_risk", "medium_risk", "high_risk"]
+    label_map: dict[int, str] = {rank[i]: _state_labels[i] for i in range(len(rank))}
+    for s in range(3):
+        if s not in label_map:
+            label_map[s] = _state_labels[len(rank) - 1] if rank else "low_risk"
     out["state_label"] = out["state_id"].map(label_map)
     return RegimeModel(scaler=scaler, model=gmm, feature_cols=feature_cols), out
 

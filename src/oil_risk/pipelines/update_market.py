@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -14,6 +15,30 @@ from oil_risk.options_flow import PolygonOptionsFlowProvider
 
 SERIES = ["DCOILWTICO", "DCOILBRENTEU", "VIXCLS", "OVXCLS", "DTWEXBGS", "DGS10", "SP500"]
 OPTION_TICKERS = ["USO", "XLE", "SPY"]
+
+_STUB_VALUES: dict[str, float] = {
+    "DCOILWTICO": 70.0,
+    "DCOILBRENTEU": 74.0,
+    "VIXCLS": 20.0,
+    "OVXCLS": 35.0,
+    "DTWEXBGS": 112.0,
+    "DGS10": 4.2,
+    "SP500": 5000.0,
+}
+
+
+def _build_stub_market_df(series_id: str, days: int = 90) -> pd.DataFrame:
+    today = datetime.now(UTC).date()
+    dates = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "value": _STUB_VALUES.get(series_id, 1.0),
+            "series_id": series_id,
+            "source": "stub",
+            "pulled_at": datetime.now(UTC),
+        }
+    )
 
 
 def _pull_options() -> pd.DataFrame:
@@ -39,7 +64,14 @@ def run() -> None:
     adapter = FredAdapter(settings.cache_dir)
     frames: list[pd.DataFrame] = []
     for sid in SERIES:
-        frames.append(adapter.series_to_dataframe(sid))
+        try:
+            frames.append(adapter.series_to_dataframe(sid))
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("FRED fetch failed for %s; will use stub: %s", sid, exc)
+    if not frames:
+        logging.warning("All FRED series failed; falling back to stub market data")
+        lookback = int(os.getenv("LOOKBACK_DAYS", "90"))
+        frames = [_build_stub_market_df(sid, lookback) for sid in SERIES]
     merged = pd.concat(frames, ignore_index=True)
     write_dataframe(merged, "market_raw", replace=True)
     logging.info("Wrote %s market rows", len(merged))

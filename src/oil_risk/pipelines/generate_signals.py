@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import pandas as pd
@@ -78,14 +79,16 @@ def run() -> None:
                             > risk_cfg["news_risk_min"]
                         )
                     ),
-                    "metadata_json": {
-                        "ovx_z_63": _safe_float(row.get("OVX_z_63")),
-                        "news_risk_score": _safe_float(row.get("geopolitical_risk_score")),
-                        "thresholds": {
-                            "ovx_z_min": risk_cfg["ovx_z_min"],
-                            "news_risk_min": risk_cfg["news_risk_min"],
-                        },
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "ovx_z_63": _safe_float(row.get("OVX_z_63")),
+                            "news_risk_score": _safe_float(row.get("geopolitical_risk_score")),
+                            "thresholds": {
+                                "ovx_z_min": risk_cfg["ovx_z_min"],
+                                "news_risk_min": risk_cfg["news_risk_min"],
+                            },
+                        }
+                    ),
                 },
                 {
                     "date": dt_date,
@@ -95,14 +98,16 @@ def run() -> None:
                         and (row.get("VIX_z_63", float("-inf")) > macro_cfg["vix_z_min"])
                         and (row.get("oil_return", float("inf")) < macro_cfg["oil_return_min"])
                     ),
-                    "metadata_json": {
-                        "vix_z_63": _safe_float(row.get("VIX_z_63")),
-                        "oil_return": _safe_float(row.get("oil_return")),
-                        "thresholds": {
-                            "vix_z_min": macro_cfg["vix_z_min"],
-                            "oil_return_min": macro_cfg["oil_return_min"],
-                        },
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "vix_z_63": _safe_float(row.get("VIX_z_63")),
+                            "oil_return": _safe_float(row.get("oil_return")),
+                            "thresholds": {
+                                "vix_z_min": macro_cfg["vix_z_min"],
+                                "oil_return_min": macro_cfg["oil_return_min"],
+                            },
+                        }
+                    ),
                 },
                 {
                     "date": dt_date,
@@ -112,15 +117,17 @@ def run() -> None:
                         and corr_value is not None
                         and corr_value < corr_cfg["corr_min"]
                     ),
-                    "metadata_json": {
-                        "corr_feature": corr_name,
-                        "corr_feature_used": corr_name,
-                        "corr_value": corr_value,
-                        "thresholds": {
-                            "corr_min": corr_cfg["corr_min"],
-                            "corr_feature_preference": corr_cfg["corr_feature_preference"],
-                        },
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "corr_feature": corr_name,
+                            "corr_feature_used": corr_name,
+                            "corr_value": corr_value,
+                            "thresholds": {
+                                "corr_min": corr_cfg["corr_min"],
+                                "corr_feature_preference": corr_cfg["corr_feature_preference"],
+                            },
+                        }
+                    ),
                 },
                 {
                     "date": dt_date,
@@ -130,15 +137,17 @@ def run() -> None:
                         and (row.get("VIX_z_63", float("-inf")) > hedge_cfg["vix_z_min"])
                         and ((not hedge_cfg["unusual_put_required"]) or unusual_put_triggered)
                     ),
-                    "metadata_json": {
-                        "unusual_put_activity": unusual_put_activity,
-                        "vix_z_63": _safe_float(row.get("VIX_z_63")),
-                        "put_call_ratio_mean": _safe_float(row.get("put_call_ratio_mean")),
-                        "thresholds": {
-                            "unusual_put_required": hedge_cfg["unusual_put_required"],
-                            "vix_z_min": hedge_cfg["vix_z_min"],
-                        },
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "unusual_put_activity": unusual_put_activity,
+                            "vix_z_63": _safe_float(row.get("VIX_z_63")),
+                            "put_call_ratio_mean": _safe_float(row.get("put_call_ratio_mean")),
+                            "thresholds": {
+                                "unusual_put_required": hedge_cfg["unusual_put_required"],
+                                "vix_z_min": hedge_cfg["vix_z_min"],
+                            },
+                        }
+                    ),
                 },
                 {
                     "date": dt_date,
@@ -148,17 +157,21 @@ def run() -> None:
                         and row.get("lagged_risk_pressure", float("-inf"))
                         > lagged_cfg["lagged_risk_pressure_min"]
                     ),
-                    "metadata_json": {
-                        "lagged_risk_pressure": _safe_float(row.get("lagged_risk_pressure")),
-                        "components": {
-                            "dVIX_lag1": _safe_float(row.get("dVIX_lag1")),
-                            "news_risk_score_lag1": _safe_float(row.get("news_risk_score_lag1")),
-                            "spx_return_lag1": _safe_float(row.get("spx_return_lag1")),
-                        },
-                        "thresholds": {
-                            "lagged_risk_pressure_min": lagged_cfg["lagged_risk_pressure_min"],
-                        },
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "lagged_risk_pressure": _safe_float(row.get("lagged_risk_pressure")),
+                            "components": {
+                                "dVIX_lag1": _safe_float(row.get("dVIX_lag1")),
+                                "news_risk_score_lag1": _safe_float(
+                                    row.get("news_risk_score_lag1")
+                                ),
+                                "spx_return_lag1": _safe_float(row.get("spx_return_lag1")),
+                            },
+                            "thresholds": {
+                                "lagged_risk_pressure_min": lagged_cfg["lagged_risk_pressure_min"],
+                            },
+                        }
+                    ),
                 },
                 {
                     "date": dt_date,
@@ -168,11 +181,13 @@ def run() -> None:
                         and tail_prob is not None
                         and tail_prob >= tail_cfg["tail_risk_prob_min"]
                     ),
-                    "metadata_json": {
-                        "tail_risk_prob": tail_prob,
-                        "model_name": tail_model_name,
-                        "thresholds": {"tail_risk_prob_min": tail_cfg["tail_risk_prob_min"]},
-                    },
+                    "metadata_json": json.dumps(
+                        {
+                            "tail_risk_prob": tail_prob,
+                            "model_name": tail_model_name,
+                            "thresholds": {"tail_risk_prob_min": tail_cfg["tail_risk_prob_min"]},
+                        }
+                    ),
                 },
             ]
         )

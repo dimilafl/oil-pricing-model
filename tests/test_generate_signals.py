@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 
 from oil_risk.pipelines import generate_signals
@@ -90,7 +92,7 @@ def test_generate_signals_backfills_history(monkeypatch):
     corr = out[out["signal_name"] == "correlation_break_alert"]
     corr_row = corr.loc[corr["date"] == pd.Timestamp("2024-01-03").date()].iloc[0]
     assert corr_row["signal_value"] == 1.0
-    assert corr_row["metadata_json"]["corr_feature_used"] == "oil_vix_corr_63_proxy"
+    assert json.loads(corr_row["metadata_json"])["corr_feature_used"] == "oil_vix_corr_63_proxy"
 
     tail = out[out["signal_name"] == "tail_risk_alert"]
     triggered_dates = set(tail.loc[tail["signal_value"] == 1.0, "date"])
