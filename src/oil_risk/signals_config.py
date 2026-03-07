@@ -32,7 +32,7 @@ DEFAULT_SIGNALS_CONFIG: dict[str, Any] = {
     },
     "lagged_equity_pressure_alert": {
         "enabled": True,
-        "lagged_risk_pressure_min": 1.0,
+        "lagged_risk_pressure_min": 2.0,
     },
     "tuning": {
         "max_trigger_rate": 0.2,

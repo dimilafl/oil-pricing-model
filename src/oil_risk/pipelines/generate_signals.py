@@ -134,6 +134,11 @@ def run() -> None:
             ),
             "metadata_json": {
                 "lagged_risk_pressure": _safe_float(latest.get("lagged_risk_pressure")),
+                "components": {
+                    "dVIX_lag1": _safe_float(latest.get("dVIX_lag1")),
+                    "news_risk_score_lag1": _safe_float(latest.get("news_risk_score_lag1")),
+                    "spx_return_lag1": _safe_float(latest.get("spx_return_lag1")),
+                },
                 "thresholds": {
                     "lagged_risk_pressure_min": lagged_cfg["lagged_risk_pressure_min"],
                 },

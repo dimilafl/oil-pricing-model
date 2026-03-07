@@ -7,6 +7,7 @@ def test_load_signals_config_defaults(tmp_path):
     config = load_signals_config(tmp_path / "missing.json")
     assert config["risk_premium_alert"]["ovx_z_min"] == 1.0
     assert config["tail_risk_alert"]["tail_risk_prob_min"] == 0.5
+    assert config["lagged_equity_pressure_alert"]["lagged_risk_pressure_min"] == 2.0
 
 
 def test_load_signals_config_overrides(tmp_path):

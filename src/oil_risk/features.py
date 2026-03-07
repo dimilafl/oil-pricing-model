@@ -36,10 +36,11 @@ def build_market_features(market_wide: pd.DataFrame) -> pd.DataFrame:
         for lag in range(1, 4):
             df[f"{source}_lag{lag}"] = df[source].shift(lag)
 
-    df["oil_outlier_move_z"] = robust_z(df["oil_return"])
-    df["oil_overreaction_flag"] = (df["oil_outlier_move_z"].abs() >= 2.0).astype(float)
     df["oil_realized_vol_10d"] = df["oil_return"].rolling(10).std()
     df["oil_realized_vol_21d"] = df["oil_return"].rolling(21).std()
+    safe_oil_vol_21d = df["oil_realized_vol_21d"].replace(0.0, np.nan)
+    df["oil_outlier_move_z"] = df["oil_return"] / safe_oil_vol_21d
+    df["oil_overreaction_flag"] = (df["oil_outlier_move_z"].abs() >= 2.0).astype(float)
     df["usd_level"] = df["DTWEXBGS"]
     df["usd_change"] = df["DTWEXBGS"].diff()
     df["rate_level"] = df["DGS10"]
