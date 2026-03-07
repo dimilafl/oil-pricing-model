@@ -94,10 +94,25 @@ def run() -> None:
             )
         write_dataframe(raw_df, "news_raw", replace=False)
 
+    # Aggregate to one row per date so the parquet accumulates correctly.
+    # norm_df has article-level rows; groupby-date collapses them before merge.
+    def _agg_to_date(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        return (
+            df.groupby("date", as_index=False)
+            .agg(
+                article_count=("article_count", "sum"),
+                keyword_count=("keyword_count", "sum"),
+                tone=("tone", "mean"),
+            )
+        )
+
+    norm_df = _agg_to_date(norm_df)
     nfile = settings.cache_dir / "news_normalized.parquet"
     if nfile.exists():
         try:
-            existing = pd.read_parquet(nfile)
+            existing = _agg_to_date(pd.read_parquet(nfile))
             norm_df = (
                 pd.concat([existing, norm_df])
                 .drop_duplicates(subset=["date"], keep="last")
