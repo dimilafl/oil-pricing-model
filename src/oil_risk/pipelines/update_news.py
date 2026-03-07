@@ -110,8 +110,10 @@ def run() -> None:
     norm_df_db = norm_df.copy()
     for col in ("themes", "persons", "organizations", "locations"):
         if col in norm_df_db.columns:
-            norm_df_db[col] = norm_df_db[col].where(norm_df_db[col].notna(), None).apply(
-                lambda x: json.dumps(x) if x is not None else None
+            norm_df_db[col] = (
+                norm_df_db[col]
+                .where(norm_df_db[col].notna(), None)
+                .apply(lambda x: json.dumps(x) if x is not None else None)
             )
     write_dataframe(norm_df_db, "news_normalized", replace=True)
 
