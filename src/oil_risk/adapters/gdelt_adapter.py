@@ -10,6 +10,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from json import JSONDecodeError
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -42,6 +43,10 @@ class GdeltQuery:
     use_legacy_lastupdate: bool = False
 
 
+class GdeltFetchError(RuntimeError):
+    """Raised when GDELT data cannot be fetched after retries."""
+
+
 def _parse_lastupdate(text: str) -> list[str]:
     urls: list[str] = []
     for line in text.strip().splitlines():
@@ -69,23 +74,68 @@ class GdeltAdapter:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.last_cache_hit = False
+        self.fallback_used = False
+        self.degraded_mode_used = False
 
     def _cache_key(self, query: GdeltQuery, end_dt: datetime) -> str:
         return f"gdelt_api_{query.days}d_{query.max_records}r_{end_dt.strftime('%Y%m%d')}"
 
-    def _get_json_with_retry(self, url: str, timeout: int = 60, max_attempts: int = 3) -> dict:
+    def _get_json_with_retry(
+        self, url: str, timeout: int = 60, max_attempts: int | None = None
+    ) -> dict:
+        attempts = max_attempts or int(os.getenv("GDELT_MAX_ATTEMPTS", "3"))
+        max_backoff_seconds = float(os.getenv("GDELT_MAX_BACKOFF_SECONDS", "30"))
         delay_seconds = 1.0
-        for attempt in range(1, max_attempts + 1):
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
             try:
                 resp = requests.get(url, timeout=timeout)
+                if resp.status_code == 429:
+                    retry_after = resp.headers.get("Retry-After")
+                    retry_wait = delay_seconds
+                    if retry_after:
+                        try:
+                            retry_wait = max(float(retry_after), retry_wait)
+                        except ValueError:
+                            pass
+                    last_error = GdeltFetchError("GDELT DOC API returned HTTP 429")
+                    if attempt == attempts:
+                        break
+                    time.sleep(min(retry_wait, max_backoff_seconds))
+                    delay_seconds = min(delay_seconds * 2, max_backoff_seconds)
+                    continue
+
                 resp.raise_for_status()
+                if not resp.text.strip():
+                    raise GdeltFetchError("GDELT DOC API returned empty body")
                 return resp.json()
-            except requests.RequestException:
-                if attempt == max_attempts:
-                    raise
-                time.sleep(delay_seconds)
-                delay_seconds *= 2
-        return {}
+            except (JSONDecodeError, ValueError) as exc:
+                last_error = exc
+            except (requests.RequestException, GdeltFetchError) as exc:
+                last_error = exc
+
+            if attempt == attempts:
+                break
+            time.sleep(min(delay_seconds, max_backoff_seconds))
+            delay_seconds = min(delay_seconds * 2, max_backoff_seconds)
+
+        raise GdeltFetchError(
+            f"Failed to fetch GDELT DOC API after {attempts} attempts"
+        ) from last_error
+
+    def _build_degraded_norm_df(self, days: int) -> pd.DataFrame:
+        today = datetime.now(UTC).date()
+        rows = [
+            {
+                "date": today - timedelta(days=offset),
+                "article_count": 0,
+                "keyword_count": 0,
+                "tone": None,
+            }
+            for offset in range(days - 1, -1, -1)
+        ]
+        return pd.DataFrame(rows)
 
     def _fetch_api_records(self, query: GdeltQuery) -> list[dict]:
         end_dt = datetime.now(UTC)
@@ -215,70 +265,97 @@ class GdeltAdapter:
 
     def fetch_and_parse(self, query: GdeltQuery | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         query = query or GdeltQuery()
+        self.fallback_used = False
+        self.degraded_mode_used = False
+
         if not query.use_legacy_lastupdate:
-            records = self._fetch_api_records(query)
-            return self._api_to_frames(records, query.days)
+            try:
+                records = self._fetch_api_records(query)
+                return self._api_to_frames(records, query.days)
+            except GdeltFetchError as exc:
+                if os.getenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1") != "1":
+                    raise
+                logger.warning(
+                    "DOC API failed, falling back to legacy lastupdate ingestion: %s", exc
+                )
+                self.fallback_used = True
+                query = GdeltQuery(
+                    days=query.days,
+                    max_files=query.max_files,
+                    max_records=query.max_records,
+                    page_size=query.page_size,
+                    use_legacy_lastupdate=True,
+                )
 
-        files = self._download_gkg_files(query)
-        cutoff = datetime.now(UTC) - timedelta(days=query.days)
-        raw_rows: list[dict] = []
-        norm_rows: list[dict] = []
+        try:
+            files = self._download_gkg_files(query)
+            cutoff = datetime.now(UTC) - timedelta(days=query.days)
+            raw_rows: list[dict] = []
+            norm_rows: list[dict] = []
 
-        for file in files:
-            with zipfile.ZipFile(file) as zf:
-                inner = zf.namelist()[0]
-                with zf.open(inner) as fd:
-                    stream = io.TextIOWrapper(fd, encoding="utf-8", errors="ignore")
-                    for row in csv.reader(stream, delimiter="\t"):
-                        if len(row) < 16:
-                            continue
-                        dt = datetime.strptime(row[1], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
-                        if dt < cutoff:
-                            continue
-                        themes = _split_semicolon_field(row[7])
-                        persons = _split_semicolon_field(row[11])
-                        orgs = _split_semicolon_field(row[13])
-                        locations = _split_semicolon_field(row[9])
-                        tone = row[15].split(",")[0] if row[15] else None
-                        src = row[4] if len(row) > 4 else None
-                        doc_id = row[0]
-                        title = row[6] if len(row) > 6 else None
-                        url = row[5] if len(row) > 5 else None
-                        text_blob = " ".join(
-                            [title or "", " ".join(themes), " ".join(locations)]
-                        ).lower()
-                        keyword_hits = sum(1 for kw in KEYWORDS if kw in text_blob)
-                        if keyword_hits == 0 and "IRAN" not in (row[7] or "").upper():
-                            continue
-                        raw_rows.append(
-                            {
-                                "id": doc_id,
-                                "datetime": dt,
-                                "source": src,
-                                "url": url,
-                                "title": title,
-                                "raw_record_json": json.dumps({"row": row}),
-                                "pulled_at": datetime.now(UTC),
-                            }
-                        )
-                        norm_rows.append(
-                            {
-                                "date": dt.date(),
-                                "article_count": 1,
-                                "keyword_count": keyword_hits,
-                                "tone": float(tone) if tone not in {None, ""} else None,
-                                "themes": themes,
-                                "persons": persons,
-                                "organizations": orgs,
-                                "locations": locations,
-                                "source": src,
-                                "title": title,
-                                "url": url,
-                            }
-                        )
+            for file in files:
+                with zipfile.ZipFile(file) as zf:
+                    inner = zf.namelist()[0]
+                    with zf.open(inner) as fd:
+                        stream = io.TextIOWrapper(fd, encoding="utf-8", errors="ignore")
+                        for row in csv.reader(stream, delimiter="\t"):
+                            if len(row) < 16:
+                                continue
+                            dt = datetime.strptime(row[1], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+                            if dt < cutoff:
+                                continue
+                            themes = _split_semicolon_field(row[7])
+                            persons = _split_semicolon_field(row[11])
+                            orgs = _split_semicolon_field(row[13])
+                            locations = _split_semicolon_field(row[9])
+                            tone = row[15].split(",")[0] if row[15] else None
+                            src = row[4] if len(row) > 4 else None
+                            doc_id = row[0]
+                            title = row[6] if len(row) > 6 else None
+                            url = row[5] if len(row) > 5 else None
+                            text_blob = " ".join(
+                                [title or "", " ".join(themes), " ".join(locations)]
+                            ).lower()
+                            keyword_hits = sum(1 for kw in KEYWORDS if kw in text_blob)
+                            if keyword_hits == 0 and "IRAN" not in (row[7] or "").upper():
+                                continue
+                            raw_rows.append(
+                                {
+                                    "id": doc_id,
+                                    "datetime": dt,
+                                    "source": src,
+                                    "url": url,
+                                    "title": title,
+                                    "raw_record_json": json.dumps({"row": row}),
+                                    "pulled_at": datetime.now(UTC),
+                                }
+                            )
+                            norm_rows.append(
+                                {
+                                    "date": dt.date(),
+                                    "article_count": 1,
+                                    "keyword_count": keyword_hits,
+                                    "tone": float(tone) if tone not in {None, ""} else None,
+                                    "themes": themes,
+                                    "persons": persons,
+                                    "organizations": orgs,
+                                    "locations": locations,
+                                    "source": src,
+                                    "title": title,
+                                    "url": url,
+                                }
+                            )
 
-        raw_df = (
-            pd.DataFrame(raw_rows).drop_duplicates(subset=["id"]) if raw_rows else pd.DataFrame()
-        )
-        norm_df = pd.DataFrame(norm_rows)
-        return raw_df, norm_df
+            raw_df = (
+                pd.DataFrame(raw_rows).drop_duplicates(subset=["id"], keep="last")
+                if raw_rows
+                else pd.DataFrame()
+            )
+            norm_df = pd.DataFrame(norm_rows)
+            if norm_df.empty:
+                raise GdeltFetchError("Legacy lastupdate ingestion produced no usable rows")
+            return raw_df, norm_df
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Legacy lastupdate ingestion failed; entering degraded mode: %s", exc)
+            self.degraded_mode_used = True
+            return pd.DataFrame(), self._build_degraded_norm_df(query.days)
