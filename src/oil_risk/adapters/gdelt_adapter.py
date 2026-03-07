@@ -82,7 +82,7 @@ class GdeltAdapter:
         return f"gdelt_api_{query.days}d_{query.max_records}r_{end_dt.strftime('%Y%m%d')}"
 
     def _get_json_with_retry(
-        self, url: str, timeout: int = 60, max_attempts: int | None = None
+        self, url: str, timeout: int = 120, max_attempts: int | None = None
     ) -> dict:
         attempts = max_attempts or int(os.getenv("GDELT_MAX_ATTEMPTS", "3"))
         max_backoff_seconds = float(os.getenv("GDELT_MAX_BACKOFF_SECONDS", "30"))
@@ -166,7 +166,8 @@ class GdeltAdapter:
                 "maxrecords": str(page_size),
             }
             url = DOC_API_URL + "?" + "&".join(f"{k}={v}" for k, v in params.items())
-            payload = self._get_json_with_retry(url, timeout=60)
+            api_timeout = int(os.getenv("GDELT_API_TIMEOUT_SECONDS", "120"))
+            payload = self._get_json_with_retry(url, timeout=api_timeout)
             articles = payload.get("articles", [])
             if not articles:
                 break
@@ -276,6 +277,20 @@ class GdeltAdapter:
             except GdeltFetchError as exc:
                 if os.getenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1") != "1":
                     raise
+                # Legacy GKG feed only has the latest 15 minutes of data.
+                # If a historical end_date was requested, skip legacy entirely
+                # and go straight to degraded mode — legacy can't serve history.
+                if query.end_date is not None:
+                    logger.warning(
+                        "DOC API failed for historical query (end_date=%s); "
+                        "legacy feed cannot serve history, entering degraded mode: %s",
+                        query.end_date,
+                        exc,
+                    )
+                    self.degraded_mode_used = True
+                    return pd.DataFrame(), self._build_degraded_norm_df(
+                        query.days, query.end_date
+                    )
                 logger.warning(
                     "DOC API failed, falling back to legacy lastupdate ingestion: %s", exc
                 )
