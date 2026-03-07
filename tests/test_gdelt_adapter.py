@@ -2,20 +2,39 @@ from __future__ import annotations
 
 import json
 import os
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from oil_risk.adapters.gdelt_adapter import GdeltAdapter, GdeltQuery
+from oil_risk.adapters.gdelt_adapter import GdeltAdapter, GdeltFetchError, GdeltQuery
 
 
 class DummyResp:
-    def __init__(self, payload: dict):
-        self._payload = payload
+    def __init__(
+        self,
+        payload: dict | None = None,
+        *,
+        status_code: int = 200,
+        text: str = "{}",
+        headers: dict[str, str] | None = None,
+        content: bytes | None = None,
+        json_error: Exception | None = None,
+    ):
+        self._payload = payload or {}
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers or {}
+        self.content = content or b""
+        self._json_error = json_error
 
     def raise_for_status(self):
+        if self.status_code >= 400 and self.status_code != 429:
+            raise RuntimeError(f"status {self.status_code}")
         return None
 
     def json(self):
+        if self._json_error:
+            raise self._json_error
         return self._payload
 
 
@@ -174,6 +193,110 @@ def test_gdelt_api_lookback_to_daily_buckets(monkeypatch, tmp_path: Path):
     assert norm["date"].nunique() == 1
     assert str(norm.iloc[0]["date"]) == "2024-01-02"
     assert norm["article_count"].sum() == 2
+
+
+def _write_legacy_zip(path: Path) -> None:
+    current_ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    content = "\t".join(
+        [
+            "doc-1",
+            current_ts,
+            "",
+            "",
+            "source",
+            "https://example.com",
+            "Iran shipping update",
+            "IRAN",
+            "",
+            "Iran",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "-1,0,0",
+        ]
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("legacy.gkg.csv", f"{content}\n")
+
+
+def test_429_retry_after_then_success_doc(monkeypatch, tmp_path: Path):
+    calls = {"n": 0}
+    slept: list[float] = []
+
+    def fake_sleep(seconds: float):
+        slept.append(seconds)
+
+    def fake_get(url: str, timeout: int = 60):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return DummyResp(status_code=429, text="", headers={"Retry-After": "2"})
+        return DummyResp({"articles": []}, text='{"articles": []}')
+
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", fake_sleep)
+
+    adapter = GdeltAdapter(tmp_path)
+    payload = adapter._get_json_with_retry("https://doc", max_attempts=3)
+    assert payload == {"articles": []}
+    assert slept == [2.0]
+
+
+def test_persistent_429_triggers_legacy_fallback(monkeypatch, tmp_path: Path):
+    legacy_zip = tmp_path / "legacy.gkg.csv.zip"
+    _write_legacy_zip(legacy_zip)
+
+    def fake_get(url: str, timeout: int = 60):
+        if "api.gdeltproject.org" in url:
+            return DummyResp(status_code=429, text="", headers={"Retry-After": "1"})
+        if "lastupdate.txt" in url:
+            return DummyResp(text=f"ignored ignored {legacy_zip.as_posix()}")
+        if url == legacy_zip.as_posix():
+            return DummyResp(content=legacy_zip.read_bytes())
+        raise AssertionError(url)
+
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", lambda *_: None)
+    adapter = GdeltAdapter(tmp_path)
+
+    raw_df, norm_df = adapter.fetch_and_parse(GdeltQuery(days=90, max_records=5, page_size=5))
+    assert adapter.fallback_used is True
+    assert adapter.degraded_mode_used is False
+    assert not raw_df.empty
+    assert not norm_df.empty
+
+
+def test_non_json_then_degraded_mode(monkeypatch, tmp_path: Path):
+    def fake_get(url: str, timeout: int = 60):
+        if "api.gdeltproject.org" in url:
+            return DummyResp(text="not json", json_error=ValueError("bad json"))
+        raise RuntimeError("legacy down")
+
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", lambda *_: None)
+    monkeypatch.setenv("LOOKBACK_DAYS", "5")
+
+    adapter = GdeltAdapter(tmp_path)
+    raw_df, norm_df = adapter.fetch_and_parse(GdeltQuery(days=5, max_records=5, page_size=5))
+    assert adapter.fallback_used is True
+    assert adapter.degraded_mode_used is True
+    assert raw_df.empty
+    assert len(norm_df) == 5
+    assert norm_df["article_count"].sum() == 0
+
+
+def test_doc_and_legacy_both_fail_triggers_degraded(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(
+        "oil_risk.adapters.gdelt_adapter.requests.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(GdeltFetchError("boom")),
+    )
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", lambda *_: None)
+    adapter = GdeltAdapter(tmp_path)
+
+    raw_df, norm_df = adapter.fetch_and_parse(GdeltQuery(days=4, max_records=5, page_size=5))
+    assert raw_df.empty
+    assert len(norm_df) == 4
 
 
 def test_gdelt_cache_key_includes_end_date(tmp_path: Path):

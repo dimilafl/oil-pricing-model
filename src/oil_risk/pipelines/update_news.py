@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 
 import pandas as pd
@@ -13,6 +14,20 @@ from oil_risk.db.io import read_sql, write_dataframe
 from oil_risk.db.schema import get_engine, init_db
 from oil_risk.llm.news_classifier import OpenAINewsClassifier
 from oil_risk.logging_utils import setup_logging
+
+
+def _build_degraded_norm_df(days: int) -> pd.DataFrame:
+    today = datetime.now(UTC).date()
+    rows = [
+        {
+            "date": today - timedelta(days=offset),
+            "article_count": 0,
+            "keyword_count": 0,
+            "tone": None,
+        }
+        for offset in range(days - 1, -1, -1)
+    ]
+    return pd.DataFrame(rows)
 
 
 def _classify_news_once(raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -59,7 +74,15 @@ def run() -> None:
     setup_logging()
     init_db()
     adapter = GdeltAdapter(settings.cache_dir)
-    raw_df, norm_df = adapter.fetch_and_parse()
+    degraded_mode_used = False
+    try:
+        raw_df, norm_df = adapter.fetch_and_parse()
+        degraded_mode_used = adapter.degraded_mode_used
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("GDELT fetch failed; entering degraded mode in update_news: %s", exc)
+        degraded_mode_used = True
+        raw_df = pd.DataFrame()
+        norm_df = _build_degraded_norm_df(int(os.getenv("LOOKBACK_DAYS", "90")))
 
     if not raw_df.empty:
         raw_df = raw_df.drop_duplicates(subset=["id"], keep="last")
@@ -71,9 +94,8 @@ def run() -> None:
             )
         write_dataframe(raw_df, "news_raw", replace=False)
 
-    if not norm_df.empty:
-        norm_df.to_parquet(settings.cache_dir / "news_normalized.parquet", index=False)
-        write_dataframe(norm_df, "news_normalized", replace=True)
+    norm_df.to_parquet(settings.cache_dir / "news_normalized.parquet", index=False)
+    write_dataframe(norm_df, "news_normalized", replace=True)
 
     llm_df = _classify_news_once(raw_df)
     if not llm_df.empty:
@@ -87,6 +109,8 @@ def run() -> None:
         "max_dt": pd.to_datetime(raw_df["datetime"]).max() if not raw_df.empty else None,
         "duration_seconds": round(perf_counter() - started, 3),
         "cache_hit": adapter.last_cache_hit,
+        "fallback_used": adapter.fallback_used,
+        "degraded_mode_used": degraded_mode_used,
     }
     _write_runlog(runlog)
     logging.info(
