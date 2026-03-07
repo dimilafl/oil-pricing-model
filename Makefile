@@ -41,8 +41,8 @@ test:
 	$(BIN)/ruff format --check .
 
 format:
-	$(BIN)/ruff format .
 	$(BIN)/ruff check . --fix
+	$(BIN)/ruff format .
 
 daily:
 	$(MAKE) update
