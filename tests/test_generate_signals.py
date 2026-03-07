@@ -9,11 +9,14 @@ def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
             "oil_return": [0.01, 0.02],
             "VIX_z_63": [1.2, 1.3],
             "OVX_z_63": [1.1, 1.4],
-            "lagged_risk_pressure": [0.5, 1.5],
+            "lagged_risk_pressure": [0.5, 2.5],
             "geopolitical_risk_score": [0.8, 1.3],
             "oil_spx_corr_63": [-0.1, -0.2],
             "unusual_put_activity": [0.0, 1.0],
             "put_call_ratio_mean": [1.0, 1.2],
+            "dVIX_lag1": [0.2, 0.3],
+            "news_risk_score_lag1": [0.4, 0.5],
+            "spx_return_lag1": [-0.01, -0.02],
         },
         index=pd.to_datetime(["2024-01-01", "2024-01-02"]),
     )
@@ -38,7 +41,7 @@ def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
             "tail_risk_alert": {"enabled": True, "tail_risk_prob_min": 0.5},
             "lagged_equity_pressure_alert": {
                 "enabled": True,
-                "lagged_risk_pressure_min": 1.0,
+                "lagged_risk_pressure_min": 2.0,
             },
             "tuning": {"max_trigger_rate": 0.2},
         },
@@ -63,3 +66,5 @@ def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
     out = writes["signals"]
     lagged = out[out["signal_name"] == "lagged_equity_pressure_alert"].iloc[0]
     assert lagged["signal_value"] == 1.0
+    assert lagged["metadata_json"]["components"]["dVIX_lag1"] == 0.3
+    assert lagged["metadata_json"]["thresholds"]["lagged_risk_pressure_min"] == 2.0

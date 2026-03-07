@@ -30,13 +30,17 @@ def test_build_features_smoke_without_optional_keys(monkeypatch, tmp_path):
 
     news_norm = pd.DataFrame(
         {
-            "date": [pd.Timestamp("2024-01-01").date(), pd.Timestamp("2024-01-01").date()],
-            "article_count": [1, 1],
-            "keyword_count": [2, 1],
-            "tone": [-1.0, -2.0],
-            "source": ["US", "US"],
-            "title": ["Iran", "Hormuz"],
-            "url": ["https://a", "https://b"],
+            "date": [
+                pd.Timestamp("2024-01-01").date(),
+                pd.Timestamp("2024-01-01").date(),
+                pd.Timestamp("2024-01-02").date(),
+            ],
+            "article_count": [1, 1, 2],
+            "keyword_count": [2, 1, 2],
+            "tone": [-1.0, -2.0, -1.5],
+            "source": ["US", "US", "US"],
+            "title": ["Iran", "Hormuz", "OPEC"],
+            "url": ["https://a", "https://b", "https://c"],
         }
     )
 

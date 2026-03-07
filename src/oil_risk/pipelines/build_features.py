@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 
 from oil_risk.config import settings
@@ -13,6 +14,30 @@ from oil_risk.features import (
     robust_z,
 )
 from oil_risk.logging_utils import setup_logging
+
+
+def _robust_z_or_nan(series: pd.Series) -> pd.Series:
+    if series.dropna().empty:
+        return pd.Series(np.nan, index=series.index, dtype=float)
+    return robust_z(series)
+
+
+def _compute_lagged_risk_pressure(mfeatures: pd.DataFrame, nfeatures: pd.DataFrame) -> pd.Series:
+    lagged_pressure = pd.Series(np.nan, index=mfeatures.index, dtype=float)
+    if "spx_return_lag1" not in mfeatures.columns:
+        return lagged_pressure
+
+    news_lag = pd.Series(np.nan, index=mfeatures.index, dtype=float)
+    if not nfeatures.empty and "news_risk_score_lag1" in nfeatures.columns:
+        news_lag = nfeatures["news_risk_score_lag1"].copy()
+        news_lag.index = pd.to_datetime(news_lag.index)
+        news_lag = news_lag.reindex(mfeatures.index)
+
+    return (
+        _robust_z_or_nan(mfeatures["dVIX_lag1"])
+        + _robust_z_or_nan(news_lag)
+        - _robust_z_or_nan(mfeatures["spx_return_lag1"])
+    )
 
 
 def run() -> None:
@@ -53,21 +78,7 @@ def run() -> None:
     else:
         logging.warning("No normalized news parquet found, skipping news features")
 
-    lagged_pressure = pd.Series(index=mfeatures.index, dtype=float)
-    if "dVIX_lag1" in mfeatures.columns:
-        lagged_pressure = lagged_pressure.add(robust_z(mfeatures["dVIX_lag1"]), fill_value=0.0)
-    if not nfeatures.empty and "news_risk_score_lag1" in nfeatures.columns:
-        news_lag = nfeatures["news_risk_score_lag1"]
-        news_lag.index = pd.to_datetime(news_lag.index)
-        lagged_pressure = lagged_pressure.add(
-            robust_z(news_lag.reindex(mfeatures.index)), fill_value=0.0
-        )
-    if "spx_return_lag1" in mfeatures.columns:
-        lagged_pressure = lagged_pressure - robust_z(mfeatures["spx_return_lag1"])
-    else:
-        lagged_pressure[:] = pd.NA
-
-    mfeatures["lagged_risk_pressure"] = lagged_pressure
+    mfeatures["lagged_risk_pressure"] = _compute_lagged_risk_pressure(mfeatures, nfeatures)
     mlong = (
         mfeatures.reset_index()
         .melt(id_vars=["date"], var_name="feature_name", value_name="feature_value")

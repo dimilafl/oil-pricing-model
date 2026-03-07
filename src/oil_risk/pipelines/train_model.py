@@ -43,7 +43,7 @@ def _assemble_training_frame() -> pd.DataFrame:
 
 
 def _select_feature_columns(train_df: pd.DataFrame) -> list[str]:
-    feature_set = os.getenv("MODEL_FEATURE_SET", "base")
+    feature_set = os.getenv("MODEL_FEATURE_SET", settings.model_feature_set)
     if feature_set == "base":
         return BASE_FEATURES
     if feature_set == "lagged":

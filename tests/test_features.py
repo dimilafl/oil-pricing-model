@@ -25,25 +25,28 @@ def test_build_market_features():
     assert out["spx_return_lag1"].equals(out["spx_return"].shift(1))
     assert out["oil_return_lag2"].equals(out["oil_return"].shift(2))
     assert out["dVIX_lag3"].equals(out["dVIX"].shift(3))
+    assert out["dOVX_lag1"].equals(out["dOVX"].shift(1))
 
 
 def test_oil_overreaction_flag_toggles_from_zscore_threshold():
-    idx = pd.date_range("2024-01-01", periods=21, freq="D")
-    oil = [100.0 + i * 0.01 for i in range(20)] + [300.0]
-    brent = [101.0 + i * 0.01 for i in range(20)] + [300.0]
+    idx = pd.date_range("2024-01-01", periods=22, freq="D")
+    oil = [100.0 + i * 0.01 for i in range(21)] + [300.0]
+    brent = [101.0 + i * 0.01 for i in range(21)] + [300.0]
     df = pd.DataFrame(
         {
             "DCOILWTICO": oil,
             "DCOILBRENTEU": brent,
-            "VIXCLS": [20.0 + i * 0.1 for i in range(21)],
-            "OVXCLS": [30.0 + i * 0.1 for i in range(21)],
-            "DTWEXBGS": [100.0 + i for i in range(21)],
-            "DGS10": [4.0 + i * 0.01 for i in range(21)],
-            "SP500": [4000.0 + i for i in range(21)],
+            "VIXCLS": [20.0 + i * 0.1 for i in range(22)],
+            "OVXCLS": [30.0 + i * 0.1 for i in range(22)],
+            "DTWEXBGS": [100.0 + i for i in range(22)],
+            "DGS10": [4.0 + i * 0.01 for i in range(22)],
+            "SP500": [4000.0 + i for i in range(22)],
         },
         index=idx,
     )
     out = build_market_features(df)
+    expected_z = out.iloc[-1]["oil_return"] / out.iloc[-1]["oil_realized_vol_21d"]
+    assert out.iloc[-1]["oil_outlier_move_z"] == expected_z
     assert out.iloc[-1]["oil_outlier_move_z"] > 2.0
     assert out.iloc[-1]["oil_overreaction_flag"] == 1.0
     assert out.iloc[10]["oil_overreaction_flag"] == 0.0
