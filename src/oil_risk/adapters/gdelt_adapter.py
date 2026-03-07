@@ -64,28 +64,70 @@ def build_query_terms(extra_terms: Iterable[str] | None = None) -> list[str]:
     return sorted(set(terms))
 
 
+class GdeltRateLimitError(RuntimeError):
+    pass
+
+
 class GdeltAdapter:
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.last_cache_hit = False
+        self.fallback_used = False
+        self.degraded_mode_used = False
 
     def _cache_key(self, query: GdeltQuery, end_dt: datetime) -> str:
         return f"gdelt_api_{query.days}d_{query.max_records}r_{end_dt.strftime('%Y%m%d')}"
 
-    def _get_json_with_retry(self, url: str, timeout: int = 60, max_attempts: int = 3) -> dict:
+    def _get_json_with_retry(self, url: str, timeout: int = 60) -> dict:
         delay_seconds = 1.0
+        max_attempts = int(os.getenv("GDELT_MAX_ATTEMPTS", "3"))
+        max_backoff_seconds = float(os.getenv("GDELT_MAX_BACKOFF_SECONDS", "30"))
         for attempt in range(1, max_attempts + 1):
             try:
                 resp = requests.get(url, timeout=timeout)
+                if resp.status_code == 429:
+                    retry_after_raw = resp.headers.get("Retry-After")
+                    retry_after_seconds = 0.0
+                    if retry_after_raw:
+                        try:
+                            retry_after_seconds = float(retry_after_raw)
+                        except ValueError:
+                            retry_after_seconds = 0.0
+                    delay_to_use = min(max(delay_seconds, retry_after_seconds), max_backoff_seconds)
+                    if attempt == max_attempts:
+                        raise GdeltRateLimitError("GDELT DOC API returned HTTP 429 after retries")
+                    logger.warning(
+                        "GDELT DOC API returned HTTP 429, retrying in %.1f seconds (attempt %s/%s)",
+                        delay_to_use,
+                        attempt,
+                        max_attempts,
+                    )
+                    time.sleep(delay_to_use)
+                    delay_seconds = min(delay_seconds * 2, max_backoff_seconds)
+                    continue
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException:
                 if attempt == max_attempts:
                     raise
-                time.sleep(delay_seconds)
-                delay_seconds *= 2
+                time.sleep(min(delay_seconds, max_backoff_seconds))
+                delay_seconds = min(delay_seconds * 2, max_backoff_seconds)
         return {}
+
+    def _build_degraded_norm_df(self, days: int) -> pd.DataFrame:
+        now = datetime.now(UTC).date()
+        rows = []
+        for offset in range(days - 1, -1, -1):
+            rows.append(
+                {
+                    "date": now - timedelta(days=offset),
+                    "article_count": 0,
+                    "keyword_count": 0,
+                    "tone": None,
+                }
+            )
+        return pd.DataFrame(rows)
 
     def _fetch_api_records(self, query: GdeltQuery) -> list[dict]:
         end_dt = datetime.now(UTC)
@@ -215,70 +257,93 @@ class GdeltAdapter:
 
     def fetch_and_parse(self, query: GdeltQuery | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         query = query or GdeltQuery()
+        self.fallback_used = False
+        self.degraded_mode_used = False
         if not query.use_legacy_lastupdate:
-            records = self._fetch_api_records(query)
-            return self._api_to_frames(records, query.days)
+            try:
+                records = self._fetch_api_records(query)
+                return self._api_to_frames(records, query.days)
+            except GdeltRateLimitError:
+                fallback_enabled = os.getenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1") == "1"
+                if not fallback_enabled:
+                    raise
+                self.fallback_used = True
+                logger.warning("DOC API rate limited, switching to legacy GDELT lastupdate feed")
+                query = GdeltQuery(
+                    days=query.days,
+                    max_files=query.max_files,
+                    max_records=query.max_records,
+                    page_size=query.page_size,
+                    use_legacy_lastupdate=True,
+                )
 
-        files = self._download_gkg_files(query)
-        cutoff = datetime.now(UTC) - timedelta(days=query.days)
-        raw_rows: list[dict] = []
-        norm_rows: list[dict] = []
+        try:
+            files = self._download_gkg_files(query)
+            cutoff = datetime.now(UTC) - timedelta(days=query.days)
+            raw_rows: list[dict] = []
+            norm_rows: list[dict] = []
 
-        for file in files:
-            with zipfile.ZipFile(file) as zf:
-                inner = zf.namelist()[0]
-                with zf.open(inner) as fd:
-                    stream = io.TextIOWrapper(fd, encoding="utf-8", errors="ignore")
-                    for row in csv.reader(stream, delimiter="\t"):
-                        if len(row) < 16:
-                            continue
-                        dt = datetime.strptime(row[1], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
-                        if dt < cutoff:
-                            continue
-                        themes = _split_semicolon_field(row[7])
-                        persons = _split_semicolon_field(row[11])
-                        orgs = _split_semicolon_field(row[13])
-                        locations = _split_semicolon_field(row[9])
-                        tone = row[15].split(",")[0] if row[15] else None
-                        src = row[4] if len(row) > 4 else None
-                        doc_id = row[0]
-                        title = row[6] if len(row) > 6 else None
-                        url = row[5] if len(row) > 5 else None
-                        text_blob = " ".join(
-                            [title or "", " ".join(themes), " ".join(locations)]
-                        ).lower()
-                        keyword_hits = sum(1 for kw in KEYWORDS if kw in text_blob)
-                        if keyword_hits == 0 and "IRAN" not in (row[7] or "").upper():
-                            continue
-                        raw_rows.append(
-                            {
-                                "id": doc_id,
-                                "datetime": dt,
-                                "source": src,
-                                "url": url,
-                                "title": title,
-                                "raw_record_json": json.dumps({"row": row}),
-                                "pulled_at": datetime.now(UTC),
-                            }
-                        )
-                        norm_rows.append(
-                            {
-                                "date": dt.date(),
-                                "article_count": 1,
-                                "keyword_count": keyword_hits,
-                                "tone": float(tone) if tone not in {None, ""} else None,
-                                "themes": themes,
-                                "persons": persons,
-                                "organizations": orgs,
-                                "locations": locations,
-                                "source": src,
-                                "title": title,
-                                "url": url,
-                            }
-                        )
+            for file in files:
+                with zipfile.ZipFile(file) as zf:
+                    inner = zf.namelist()[0]
+                    with zf.open(inner) as fd:
+                        stream = io.TextIOWrapper(fd, encoding="utf-8", errors="ignore")
+                        for row in csv.reader(stream, delimiter="\t"):
+                            if len(row) < 16:
+                                continue
+                            dt = datetime.strptime(row[1], "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+                            if dt < cutoff:
+                                continue
+                            themes = _split_semicolon_field(row[7])
+                            persons = _split_semicolon_field(row[11])
+                            orgs = _split_semicolon_field(row[13])
+                            locations = _split_semicolon_field(row[9])
+                            tone = row[15].split(",")[0] if row[15] else None
+                            src = row[4] if len(row) > 4 else None
+                            doc_id = row[0]
+                            title = row[6] if len(row) > 6 else None
+                            url = row[5] if len(row) > 5 else None
+                            text_blob = " ".join(
+                                [title or "", " ".join(themes), " ".join(locations)]
+                            ).lower()
+                            keyword_hits = sum(1 for kw in KEYWORDS if kw in text_blob)
+                            if keyword_hits == 0 and "IRAN" not in (row[7] or "").upper():
+                                continue
+                            raw_rows.append(
+                                {
+                                    "id": doc_id,
+                                    "datetime": dt,
+                                    "source": src,
+                                    "url": url,
+                                    "title": title,
+                                    "raw_record_json": json.dumps({"row": row}),
+                                    "pulled_at": datetime.now(UTC),
+                                }
+                            )
+                            norm_rows.append(
+                                {
+                                    "date": dt.date(),
+                                    "article_count": 1,
+                                    "keyword_count": keyword_hits,
+                                    "tone": float(tone) if tone not in {None, ""} else None,
+                                    "themes": themes,
+                                    "persons": persons,
+                                    "organizations": orgs,
+                                    "locations": locations,
+                                    "source": src,
+                                    "title": title,
+                                    "url": url,
+                                }
+                            )
 
-        raw_df = (
-            pd.DataFrame(raw_rows).drop_duplicates(subset=["id"]) if raw_rows else pd.DataFrame()
-        )
-        norm_df = pd.DataFrame(norm_rows)
-        return raw_df, norm_df
+            raw_df = (
+                pd.DataFrame(raw_rows).drop_duplicates(subset=["id"]) if raw_rows else pd.DataFrame()
+            )
+            norm_df = pd.DataFrame(norm_rows)
+            if raw_df.empty and norm_df.empty:
+                raise RuntimeError("Legacy GDELT feed returned no usable rows")
+            return raw_df, norm_df
+        except Exception as exc:  # noqa: BLE001
+            self.degraded_mode_used = True
+            logger.warning("News ingestion degraded, using deterministic empty dataset: %s", exc)
+            return pd.DataFrame(), self._build_degraded_norm_df(query.days)

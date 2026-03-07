@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from time import perf_counter
 
@@ -59,7 +60,13 @@ def run() -> None:
     setup_logging()
     init_db()
     adapter = GdeltAdapter(settings.cache_dir)
-    raw_df, norm_df = adapter.fetch_and_parse()
+    try:
+        raw_df, norm_df = adapter.fetch_and_parse()
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("News adapter failed, falling back to deterministic degraded dataset: %s", exc)
+        adapter.degraded_mode_used = True
+        raw_df = pd.DataFrame()
+        norm_df = adapter._build_degraded_norm_df(int(os.getenv("LOOKBACK_DAYS", "90")))
 
     if not raw_df.empty:
         raw_df = raw_df.drop_duplicates(subset=["id"], keep="last")
@@ -87,6 +94,8 @@ def run() -> None:
         "max_dt": pd.to_datetime(raw_df["datetime"]).max() if not raw_df.empty else None,
         "duration_seconds": round(perf_counter() - started, 3),
         "cache_hit": adapter.last_cache_hit,
+        "fallback_used": adapter.fallback_used,
+        "degraded_mode_used": adapter.degraded_mode_used,
     }
     _write_runlog(runlog)
     logging.info(

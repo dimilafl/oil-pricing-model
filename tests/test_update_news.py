@@ -17,6 +17,8 @@ class DummyAdapter:
         self._raw = raw_df
         self._norm = norm_df
         self.last_cache_hit = cache_hit
+        self.fallback_used = False
+        self.degraded_mode_used = False
 
     def fetch_and_parse(self):
         return self._raw.copy(), self._norm.copy()
@@ -110,3 +112,5 @@ def test_update_news_dedup_normalized_and_runlog(monkeypatch, tmp_path: Path):
     runlog = json.loads(runlog_files[-1].read_text(encoding="utf-8"))
     assert runlog["raw_rows"] == 2
     assert runlog["cache_hit"] is True
+    assert runlog["fallback_used"] is False
+    assert runlog["degraded_mode_used"] is False
