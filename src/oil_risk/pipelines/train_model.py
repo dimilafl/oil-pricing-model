@@ -39,7 +39,9 @@ def _assemble_training_frame() -> pd.DataFrame:
     mw = mkt.pivot_table(index="date", columns="feature_name", values="feature_value")
     nw = nws.pivot_table(index="date", columns="feature_name", values="feature_value")
     nw = nw.rename(columns={"geopolitical_risk_score": "news_risk_score"})
-    return mw.join(nw[["news_risk_score"]], how="inner").sort_index()
+    merged = mw.join(nw[["news_risk_score"]], how="left").sort_index()
+    merged["news_risk_score"] = merged["news_risk_score"].ffill().fillna(0.0)
+    return merged
 
 
 def _select_feature_columns(train_df: pd.DataFrame) -> list[str]:
