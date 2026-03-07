@@ -13,6 +13,8 @@ make daily
 make dashboard
 ```
 
+Clean-room note: if this is a brand new machine, run `xcode-select --install` on macOS before `make setup` so Python build tooling is available.
+
 Local quality gate:
 
 ```bash
@@ -30,6 +32,7 @@ make smoke
 5. `make eval`
 6. `make report`
 7. `make export-alerts`
+8. `make export-signal-engine`
 
 Equivalent console scripts (installed into the venv):
 
@@ -41,11 +44,12 @@ Equivalent console scripts (installed into the venv):
 * `oil-evaluate-signals`
 * `oil-generate-report`
 * `oil-export-alerts`
+* `oil-export-signal-engine`
 
 ## Commands
 
 * `make setup`
-  Create `.venv/` and install `oil-risk` (editable) plus dev tools.
+  Create `.venv/` and install the project in editable mode plus dev tools.
 
 * `make update`
   Run `oil-update-market` and `oil-update-news`.
@@ -68,11 +72,17 @@ Equivalent console scripts (installed into the venv):
 * `make export-alerts`
   Run `oil-export-alerts` and write `artifacts/alerts.json`.
 
+* `make export-signal-engine`
+  Run `oil-export-signal-engine` and write `artifacts/signal_engine_latest.json`.
+
 * `make dashboard`
   Run `streamlit run src/oil_risk/dashboard.py`.
 
 * `make test`
   Run pytest + ruff checks.
+
+* `make format`
+  Run auto-fix formatting and lint cleanups.
 
 * `make smoke`
   Fast local gate: ruff + pytest + explicit no-network smoke test.
@@ -235,6 +245,104 @@ Dashboard shows:
 * includes lag/overreaction diagnostic charts for `spx_return`, `spx_return_lag1`, and `oil_outlier_move_z` when features exist
 * includes the latest `lag_effect_summary` and `overreaction_fade_summary` tables from `signal_eval`
 
+### How to read the Data status panel
+
+The dashboard Data status panel checks table freshness with `row_count` and `latest_date`.
+
+Interpretation guide:
+
+* `news_normalized` and `news_features`
+  * If both have rows and recent dates, the news pipeline is healthy.
+  * If `news_normalized` has rows but `news_features` is empty, run `make features`.
+* `model_state`
+  * Empty means `make train` did not run or failed.
+* `signals`
+  * Empty means `make signals` did not run.
+* `reports`
+  * Empty means `make report` did not run.
+  * If reports has rows but dashboard shows a stale path warning, the file path in SQLite does not exist on disk.
+* `signal_eval`
+  * Empty means `make eval` did not run.
+* `tail_risk_predictions`
+  * Empty is allowed unless you are running tail risk workflows.
+
+The "What is missing" panel summarizes these checks as operator actions.
+
+### Degraded news mode
+
+If GDELT fetch fails, `oil-update-news` falls back to degraded mode. In degraded mode:
+
+* `news_normalized` is still written for the full lookback window.
+* Daily rows are synthetic with `article_count=0`, `keyword_count=0`, and `tone=null`.
+* `news_raw` may have zero inserted rows for that run.
+* `news_features` can still be computed, but news-driven signals will typically be muted because upstream counts are zero.
+
+You can confirm degraded mode by checking the latest run log in `data/runlogs/update_news_<timestamp>.json` for `degraded_mode_used: true`.
+
+## Clean-room operator runbooks
+
+### macOS clean-room steps
+
+Use this on a fresh machine where no venv or DB exists yet.
+
+```bash
+git clone https://github.com/dimilafl/oil-pricing-model.git
+cd oil-pricing-model
+
+xcode-select --install
+python3 --version
+make setup
+make daily
+make smoke
+make dashboard
+```
+
+Expected outputs after `make daily`:
+
+* `data/oil_risk.db` exists and contains populated pipeline tables.
+* `reports/daily_<YYYY-MM-DD>.md` exists.
+* `reports/eval_<YYYY-MM-DD>.md` exists.
+* `artifacts/alerts.json` exists.
+* `artifacts/signal_engine_latest.json` exists.
+
+### Windows clean-room steps (PowerShell)
+
+Use this instead of `make` on Windows because the Makefile uses POSIX venv paths.
+
+```powershell
+git clone https://github.com/dimilafl/oil-pricing-model.git
+cd oil-pricing-model
+
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+
+oil-update-market
+oil-update-news
+oil-build-features
+oil-train-model
+oil-generate-signals
+oil-evaluate-signals
+oil-generate-report
+oil-export-alerts
+oil-export-signal-engine
+
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+
+streamlit run src\oil_risk\dashboard.py
+```
+
+Expected outputs match macOS:
+
+* `data/oil_risk.db`
+* `reports/daily_<YYYY-MM-DD>.md`
+* `reports/eval_<YYYY-MM-DD>.md`
+* `artifacts/alerts.json`
+* `artifacts/signal_engine_latest.json`
+
 ## Windows (PowerShell, no make)
 
 The Makefile assumes a POSIX venv layout (`.venv/bin`). On Windows, run the console scripts after activating the venv.
@@ -256,6 +364,7 @@ oil-generate-signals
 oil-evaluate-signals
 oil-generate-report
 oil-export-alerts
+oil-export-signal-engine
 
 streamlit run src\oil_risk\dashboard.py
 ```

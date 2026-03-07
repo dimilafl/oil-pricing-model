@@ -62,6 +62,7 @@ Makefile targets:
 - `make eval`
 - `make report`
 - `make export-alerts`
+- `make export-signal-engine`
 - `make dashboard`
 - `make test`
 - `make daily`
@@ -76,6 +77,7 @@ Console scripts (installed into the venv):
 - `oil-evaluate-signals`
 - `oil-generate-report`
 - `oil-export-alerts`
+- `oil-export-signal-engine`
 - `oil-dashboard`
 
 ## Repo fences
