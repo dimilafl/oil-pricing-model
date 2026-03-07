@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
+
+import requests
 
 from oil_risk.adapters.gdelt_adapter import GdeltAdapter, GdeltQuery
 
@@ -181,3 +184,122 @@ def test_gdelt_cache_key_includes_end_date(tmp_path: Path):
     query = GdeltQuery(days=7, max_records=100)
     key = adapter._cache_key(query, datetime(2024, 1, 5, tzinfo=UTC))
     assert key.endswith("_20240105")
+
+
+class FailingResp:
+    def __init__(self, status_code: int, headers: dict[str, str] | None = None):
+        self.status_code = status_code
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        http_error = requests.HTTPError(f"{self.status_code} error")
+        http_error.response = self
+        raise http_error
+
+
+class JsonResp:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def test_gdelt_retry_429_with_retry_after_then_success(monkeypatch, tmp_path: Path):
+    calls = {"n": 0}
+
+    def fake_get(url: str, timeout: int = 60):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return FailingResp(429, {"Retry-After": "1"})
+        return JsonResp(
+            {
+                "articles": [
+                    {
+                        "url": "https://success",
+                        "title": "Iran tanker update",
+                        "seendate": "20240102000000",
+                        "sourcecountry": "US",
+                        "tone": "-2",
+                    }
+                ]
+            }
+        )
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", lambda x: sleep_calls.append(x))
+    monkeypatch.setattr(
+        "oil_risk.adapters.gdelt_adapter.datetime",
+        type(
+            "FixedDateTime",
+            (datetime,),
+            {
+                "now": classmethod(lambda cls, tz=None: datetime(2024, 1, 3, tzinfo=UTC)),
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
+
+    adapter = GdeltAdapter(tmp_path)
+    raw, norm = adapter.fetch_and_parse(GdeltQuery(days=5, max_records=5, page_size=5))
+    assert len(raw) == 1
+    assert len(norm) == 1
+    assert adapter.fallback_used is False
+    assert adapter.retry_after_seconds_used == 1.0
+    assert sleep_calls == [1.0]
+
+
+def test_gdelt_persistent_429_triggers_legacy_fallback(monkeypatch, tmp_path: Path):
+    def fake_get(url: str, timeout: int = 60):
+        return FailingResp(429, {"Retry-After": "1"})
+
+    def fake_download(_self, _query: GdeltQuery) -> list[Path]:
+        zip_path = tmp_path / "sample_gkg.zip"
+        row = [
+            "doc-1",
+            "20240102000000",
+            "",
+            "",
+            "source.example",
+            "https://example.com/story",
+            "Iran tanker disruption",
+            "IRAN;TANKER",
+            "",
+            "IRAN",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "-1,0,0,0,0,0",
+        ]
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("sample.gkg.csv", "\t".join(row) + "\n")
+        return [zip_path]
+
+    monkeypatch.setenv("GDELT_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1")
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.requests.get", fake_get)
+    monkeypatch.setattr("oil_risk.adapters.gdelt_adapter.time.sleep", lambda _x: None)
+    monkeypatch.setattr(GdeltAdapter, "_download_gkg_files", fake_download)
+    monkeypatch.setattr(
+        "oil_risk.adapters.gdelt_adapter.datetime",
+        type(
+            "FixedDateTime",
+            (datetime,),
+            {
+                "now": classmethod(lambda cls, tz=None: datetime(2024, 1, 3, tzinfo=UTC)),
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
+
+    adapter = GdeltAdapter(tmp_path)
+    raw, norm = adapter.fetch_and_parse(GdeltQuery(days=5, max_records=5, page_size=5))
+    assert not raw.empty
+    assert not norm.empty
+    assert adapter.fallback_used is True

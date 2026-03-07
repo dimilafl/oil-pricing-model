@@ -87,6 +87,8 @@ def run() -> None:
         "max_dt": pd.to_datetime(raw_df["datetime"]).max() if not raw_df.empty else None,
         "duration_seconds": round(perf_counter() - started, 3),
         "cache_hit": adapter.last_cache_hit,
+        "fallback_used": getattr(adapter, "fallback_used", False),
+        "retry_after_seconds_used": getattr(adapter, "retry_after_seconds_used", None),
     }
     _write_runlog(runlog)
     logging.info(

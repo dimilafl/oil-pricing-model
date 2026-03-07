@@ -69,22 +69,39 @@ class GdeltAdapter:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.last_cache_hit = False
+        self.fallback_used = False
+        self.retry_after_seconds_used: float | None = None
 
     def _cache_key(self, query: GdeltQuery, end_dt: datetime) -> str:
         return f"gdelt_api_{query.days}d_{query.max_records}r_{end_dt.strftime('%Y%m%d')}"
 
-    def _get_json_with_retry(self, url: str, timeout: int = 60, max_attempts: int = 3) -> dict:
+    def _get_json_with_retry(self, url: str, timeout: int = 60, max_attempts: int | None = None) -> dict:
+        if max_attempts is None:
+            max_attempts = int(os.getenv("GDELT_MAX_ATTEMPTS", "5"))
+        max_backoff_seconds = float(os.getenv("GDELT_MAX_BACKOFF_SECONDS", "60"))
         delay_seconds = 1.0
         for attempt in range(1, max_attempts + 1):
             try:
                 resp = requests.get(url, timeout=timeout)
                 resp.raise_for_status()
                 return resp.json()
-            except requests.RequestException:
+            except requests.RequestException as exc:
                 if attempt == max_attempts:
                     raise
-                time.sleep(delay_seconds)
-                delay_seconds *= 2
+                sleep_seconds = min(delay_seconds, max_backoff_seconds)
+                if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                    if exc.response.status_code == 429:
+                        retry_after_raw = exc.response.headers.get("Retry-After")
+                        if retry_after_raw:
+                            try:
+                                retry_after = max(0.0, float(retry_after_raw))
+                                self.retry_after_seconds_used = retry_after
+                                sleep_seconds = max(sleep_seconds, retry_after)
+                            except ValueError:
+                                logger.debug("Invalid Retry-After header from GDELT: %s", retry_after_raw)
+                        sleep_seconds = min(sleep_seconds, max_backoff_seconds)
+                time.sleep(sleep_seconds)
+                delay_seconds = min(delay_seconds * 2, max_backoff_seconds)
         return {}
 
     def _fetch_api_records(self, query: GdeltQuery) -> list[dict]:
@@ -215,9 +232,24 @@ class GdeltAdapter:
 
     def fetch_and_parse(self, query: GdeltQuery | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         query = query or GdeltQuery()
-        if not query.use_legacy_lastupdate:
-            records = self._fetch_api_records(query)
-            return self._api_to_frames(records, query.days)
+        self.fallback_used = False
+        use_legacy = query.use_legacy_lastupdate or os.getenv("GDELT_USE_LEGACY_LASTUPDATE", "0") == "1"
+        fallback_on_429 = os.getenv("GDELT_FALLBACK_TO_LEGACY_ON_429", "1") == "1"
+
+        if not use_legacy:
+            try:
+                records = self._fetch_api_records(query)
+                return self._api_to_frames(records, query.days)
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code == 429 and fallback_on_429:
+                    logger.warning("GDELT DOC API rate limited after retries, falling back to legacy feed")
+                    self.fallback_used = True
+                else:
+                    raise
+
+        if use_legacy:
+            self.fallback_used = True
 
         files = self._download_gkg_files(query)
         cutoff = datetime.now(UTC) - timedelta(days=query.days)
