@@ -99,13 +99,10 @@ def run() -> None:
     def _agg_to_date(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        return (
-            df.groupby("date", as_index=False)
-            .agg(
-                article_count=("article_count", "sum"),
-                keyword_count=("keyword_count", "sum"),
-                tone=("tone", "mean"),
-            )
+        return df.groupby("date", as_index=False).agg(
+            article_count=("article_count", "sum"),
+            keyword_count=("keyword_count", "sum"),
+            tone=("tone", "mean"),
         )
 
     norm_df = _agg_to_date(norm_df)
