@@ -40,6 +40,10 @@ test:
 	$(BIN)/ruff check .
 	$(BIN)/ruff format --check .
 
+format:
+	$(BIN)/ruff format .
+	$(BIN)/ruff check . --fix
+
 daily:
 	$(MAKE) update
 	$(MAKE) features

@@ -44,7 +44,8 @@ Agent response must include:
 - smallest diff that satisfies the goal
 
 4) Run the gate locally
-- default gate: `make smoke`
+- Standard gate before any PR: `make smoke`
+- If smoke fails on formatting, run `make format` then `make smoke`
 
 5) Commit immediately when correct
 - small commits
