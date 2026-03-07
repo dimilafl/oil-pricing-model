@@ -128,9 +128,8 @@ def run(apply_best: bool = False, metric_name: str = "separation") -> Path:
         "## Leaderboard (top 10)",
     ]
     for _, row in leaderboard.head(10).iterrows():
-        report_lines.append(
-            f"- score={row['score']:.6f}, trigger_rate={row['trigger_rate']:.4f}, params={row['params']}"
-        )
+        report_line = f"- score={row['score']:.6f}, trigger_rate={row['trigger_rate']:.4f}, params={row['params']}"
+        report_lines.append(report_line)
     report_path.write_text("\n".join(report_lines), encoding="utf-8")
     return report_path
 
