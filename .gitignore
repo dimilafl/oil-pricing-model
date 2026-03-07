@@ -3,8 +3,12 @@ __pycache__/
 *.pyc
 data/*.db
 data/cache/*
+data/runlogs/
+data/models/
 reports/*.md
 models/*.joblib
+artifacts/
+src/*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
