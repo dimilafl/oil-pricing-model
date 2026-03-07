@@ -3,22 +3,30 @@ import pandas as pd
 from oil_risk.pipelines import generate_signals
 
 
-def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
+def test_generate_signals_backfills_history(monkeypatch):
     frame = pd.DataFrame(
         {
-            "oil_return": [0.01, 0.02],
-            "VIX_z_63": [1.2, 1.3],
-            "OVX_z_63": [1.1, 1.4],
-            "lagged_risk_pressure": [0.5, 2.5],
-            "geopolitical_risk_score": [0.8, 1.3],
-            "oil_spx_corr_63": [-0.1, -0.2],
-            "unusual_put_activity": [0.0, 1.0],
-            "put_call_ratio_mean": [1.0, 1.2],
-            "dVIX_lag1": [0.2, 0.3],
-            "news_risk_score_lag1": [0.4, 0.5],
-            "spx_return_lag1": [-0.01, -0.02],
+            "oil_return": [0.01, -0.03, 0.02, -0.01, 0.03, 0.04],
+            "VIX_z_63": [0.8, 1.2, 1.1, 1.3, 0.9, 1.0],
+            "OVX_z_63": [0.9, 1.1, 1.3, 1.0, 1.4, 1.2],
+            "lagged_risk_pressure": [0.5, 1.7, 2.1, 1.4, 0.9, 1.8],
+            "geopolitical_risk_score": [0.7, 1.1, 1.3, 0.8, 1.2, 1.0],
+            "oil_spx_corr_63": [-0.1, -0.2, float("nan"), -0.05, -0.12, -0.1],
+            "oil_vix_corr_63_proxy": [-0.25, -0.28, -0.45, -0.12, -0.18, -0.2],
+            "dVIX_lag1": [0.1, 0.2, 0.3, 0.15, 0.05, 0.2],
+            "news_risk_score_lag1": [0.2, 0.4, 0.5, 0.3, 0.2, 0.25],
+            "spx_return_lag1": [-0.01, -0.02, -0.03, -0.01, 0.01, 0.0],
         },
-        index=pd.to_datetime(["2024-01-01", "2024-01-02"]),
+        index=pd.to_datetime(
+            [
+                "2024-01-01",
+                "2024-01-02",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-05",
+                "2024-01-06",
+            ]
+        ),
     )
 
     monkeypatch.setattr(generate_signals, "load_feature_frame", lambda: frame)
@@ -31,7 +39,7 @@ def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
             "correlation_break_alert": {
                 "enabled": True,
                 "corr_min": -0.3,
-                "corr_feature_preference": ["oil_spx_corr_63"],
+                "corr_feature_preference": ["oil_spx_corr_63", "oil_vix_corr_63_proxy"],
             },
             "hedging_pressure_alert": {
                 "enabled": True,
@@ -50,21 +58,44 @@ def test_generate_signals_includes_lagged_equity_pressure_alert(monkeypatch):
         generate_signals,
         "read_sql",
         lambda query: pd.DataFrame(
-            [{"date": "2024-01-02", "tail_risk_prob": 0.4, "model_name": "tail"}]
+            [
+                {"date": "2024-01-02", "tail_risk_prob": 0.4, "model_name": "tail"},
+                {"date": "2024-01-03", "tail_risk_prob": 0.7, "model_name": "tail"},
+                {"date": "2024-01-05", "tail_risk_prob": 0.6, "model_name": "tail"},
+            ]
         ),
     )
 
     writes = {}
 
     def fake_write(df, table_name, replace=False):
-        writes[table_name] = df.copy()
+        writes[table_name] = (df.copy(), replace)
 
     monkeypatch.setattr(generate_signals, "write_dataframe", fake_write)
 
     generate_signals.run()
 
-    out = writes["signals"]
-    lagged = out[out["signal_name"] == "lagged_equity_pressure_alert"].iloc[0]
-    assert lagged["signal_value"] == 1.0
-    assert lagged["metadata_json"]["components"]["dVIX_lag1"] == 0.3
-    assert lagged["metadata_json"]["thresholds"]["lagged_risk_pressure_min"] == 2.0
+    out, replace = writes["signals"]
+    assert replace is True
+
+    assert set(out["date"]) == set(frame.index.date)
+
+    lagged = out[out["signal_name"] == "lagged_equity_pressure_alert"]
+    assert (
+        lagged.loc[lagged["date"] == pd.Timestamp("2024-01-03").date(), "signal_value"].iloc[0]
+        == 1.0
+    )
+    assert lagged["signal_value"].sum() == 1.0
+
+    corr = out[out["signal_name"] == "correlation_break_alert"]
+    corr_row = corr.loc[corr["date"] == pd.Timestamp("2024-01-03").date()].iloc[0]
+    assert corr_row["signal_value"] == 1.0
+    assert corr_row["metadata_json"]["corr_feature_used"] == "oil_vix_corr_63_proxy"
+
+    tail = out[out["signal_name"] == "tail_risk_alert"]
+    triggered_dates = set(tail.loc[tail["signal_value"] == 1.0, "date"])
+    assert triggered_dates == {
+        pd.Timestamp("2024-01-03").date(),
+        pd.Timestamp("2024-01-05").date(),
+    }
+    assert tail["metadata_json"].map(lambda m: m is not None).all()
