@@ -94,11 +94,27 @@ def run() -> None:
             )
         write_dataframe(raw_df, "news_raw", replace=False)
 
-    norm_df.to_parquet(settings.cache_dir / "news_normalized.parquet", index=False)
+    nfile = settings.cache_dir / "news_normalized.parquet"
+    if nfile.exists():
+        try:
+            existing = pd.read_parquet(nfile)
+            norm_df = (
+                pd.concat([existing, norm_df])
+                .drop_duplicates(subset=["date"], keep="last")
+                .sort_values("date")
+                .reset_index(drop=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("Could not merge existing news_normalized parquet: %s", exc)
+    norm_df.to_parquet(nfile, index=False)
     norm_df_db = norm_df.copy()
     for col in ("themes", "persons", "organizations", "locations"):
         if col in norm_df_db.columns:
-            norm_df_db[col] = norm_df_db[col].apply(json.dumps)
+            norm_df_db[col] = (
+                norm_df_db[col]
+                .where(norm_df_db[col].notna(), None)
+                .apply(lambda x: json.dumps(x) if x is not None else None)
+            )
     write_dataframe(norm_df_db, "news_normalized", replace=True)
 
     llm_df = _classify_news_once(raw_df)
